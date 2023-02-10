@@ -8,13 +8,66 @@ Differentiable audio signal processors in PyTorch
 </div>
 
 
-## Install 
+## Usage 
 
 ```
 pip install dasp-pytorch
 ```
 
-## Usage
+## Audio Processors
+
+<table>
+    <tr>
+        <th>Audio Processor</th>
+        <th>Interface</th>
+        <th>Reference</th>
+    </tr>
+    <tr>
+        <td>Simple Distortion</td>
+        <td><code>simple_distortion()</code></td>
+        <td></a></td>
+    </tr>
+    <tr>
+        <td>Advanced Distortion</td>
+        <td><code>advanced_distortion()</code></td>
+        <td></a></td>
+    </tr>    
+    <tr>
+        <td>Parametric Equalizer</td>
+        <td><code>parametric_eq()</code></td>
+        <td></td>
+    </tr>
+    <tr>
+        <td>Graphic Equalizer</td>
+        <td><code>graphic_eq()</code></td>
+        <td></td>
+    </tr>
+    <tr>
+        <td>Dynamic range compressor</td>
+        <td><code>compressor()</code></td>
+        <td></td>
+    </tr>
+    <tr>
+        <td>Dynamic range expander</td>
+        <td><code>expander()</code></td>
+        <td></td>
+    </tr>    
+    <tr>
+        <td>Reverberation</td>
+        <td><code>reverberation()</code></td>
+        <td></td>
+    </tr>
+    <tr>
+        <td>Stereo Widener</td>
+        <td><code>stereo_widener()</code></td>
+        <td></td>
+    </tr>
+    <tr>
+        <td>Stereo Panner</td>
+        <td><code>stereo_panner()</code></td>
+        <td></td>
+    </tr>
+</table>
 
 ## Citations
 

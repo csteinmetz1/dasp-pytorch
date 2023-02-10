@@ -1,6 +1,10 @@
 import torch
+import numpy as np
+import scipy.signal
+import dasp_pytorch.signal
+import matplotlib.pyplot as plt
 
-import dasp_pytorch.signal as signal
+from typing import Dict, List
 
 
 def gain(x: torch.Tensor, gain_db: torch.Tensor):
@@ -11,20 +15,54 @@ def gain(x: torch.Tensor, gain_db: torch.Tensor):
     return x * gain_lin
 
 
-def graphic_eq():
-    # 20 bands (octave)
-    return
+def simple_distortion(x: torch.Tensor, drive_db: torch.Tensor):
+    """Simple soft-clipping distortion with drive control."""
+    return torch.tanh(x * (10 ** (drive_db / 20.0)))
 
 
-def distortion():
+def advanced_distortion(
+    x: torch.Tensor,
+    input_gain_db: torch.Tensor,
+    output_gain_db: torch.Tensor,
+    tone: torch.Tensor,
+    dc_offset: torch.Tensor,
+    sample_rate: float,
+):
     """
+
+    Args:
+        x (torch.Tensor): Input audio tensor with shape (bs, ..., seq_len)
+        input_gain_db (torch.Tensor):
+        output_gain_db (torch.Tensor):
+        tone (torch.Tensor):
+        dc_offset (torch.Tensor):
+        sample_rate (float):
+
+    The tone filter is implemented as a weight sum of 1st order highpass and lowpass filters.
+    This is based on the design of the Boss guituar pedal modelled in [2]. Their design uses a
+    highpass with corner frequency 1.16 kHz and a lowpass with corner frequency 320 Hz.
 
     [1] Colonel, Joseph T., Marco Comunità, and Joshua Reiss.
         "Reverse Engineering Memoryless Distortion Effects with Differentiable Waveshapers."
         153rd Convention of the Audio Engineering Society. Audio Engineering Society, 2022.
 
-    [2]
+    [2] Yeh, David Te-Mao.
+        Digital implementation of musical distortion circuits by analysis and simulation.
+        Stanford University, 2009.
     """
+
+    # input gain
+
+    # nonlinearity
+    x = torch.tanh(x)
+
+    # design highpass and lowpass filters
+
+    return
+
+
+def graphic_eq():
+    # 20 bands (octave)
     return
 
 
@@ -52,8 +90,6 @@ def parametric_eq(
 ):
     """Six-band Parametric Equalizer.
 
-
-
     Low-shelf -> Band 1 -> Band 2 -> Band 3 -> Band 4 -> High-shelf
 
     [1] Välimäki, Vesa, and Joshua D. Reiss.
@@ -64,7 +100,11 @@ def parametric_eq(
         "Neural parametric equalizer matching using differentiable biquads."
         Proc. Int. Conf. Digital Audio Effects (eDAFx-20). 2020.
 
-    [3] Steinmetz, Christian J., Nicholas J. Bryan, and Joshua D. Reiss.
+    [3] Colonel, Joseph T., Christian J. Steinmetz, et al.
+        "Direct design of biquad filter cascades with deep learning by sampling random polynomials."
+        IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP), 2022.
+
+    [4] Steinmetz, Christian J., Nicholas J. Bryan, and Joshua D. Reiss.
         "Style Transfer of Audio Effects with Differentiable Signal Processing."
         Journal of the Audio Engineering Society. Vol. 70, Issue 9, 2022, pp. 708-721.
 
@@ -75,7 +115,7 @@ def parametric_eq(
     a_s, b_s = [], []
 
     # -------- design low-shelf filter --------
-    b, a = signal.biqaud(
+    b, a = dasp_pytorch.signal.biqaud(
         low_shelf_gain_dB,
         low_shelf_cutoff_freq,
         low_shelf_q_factor,
@@ -86,7 +126,7 @@ def parametric_eq(
     a_s.append(a)
 
     # -------- design first-band peaking filter --------
-    b, a = signal.biqaud(
+    b, a = dasp_pytorch.signal.biqaud(
         first_band_gain_dB,
         first_band_cutoff_freq,
         first_band_q_factor,
@@ -97,7 +137,7 @@ def parametric_eq(
     a_s.append(a)
 
     # -------- design second-band peaking filter --------
-    b, a = signal.biqaud(
+    b, a = dasp_pytorch.signal.biqaud(
         second_band_gain_dB,
         second_band_cutoff_freq,
         second_band_q_factor,
@@ -108,7 +148,7 @@ def parametric_eq(
     a_s.append(a)
 
     # -------- design third-band peaking filter --------
-    b, a = signal.biqaud(
+    b, a = dasp_pytorch.signal.biqaud(
         third_band_gain_dB,
         third_band_cutoff_freq,
         third_band_q_factor,
@@ -119,7 +159,7 @@ def parametric_eq(
     a_s.append(a)
 
     # -------- design fourth-band peaking filter --------
-    b, a = signal.biqaud(
+    b, a = dasp_pytorch.signal.biqaud(
         fourth_band_gain_dB,
         fourth_band_cutoff_freq,
         fourth_band_q_factor,
@@ -130,7 +170,7 @@ def parametric_eq(
     a_s.append(a)
 
     # -------- design high-shelf filter --------
-    b, a = signal.biqaud(
+    b, a = dasp_pytorch.signal.biqaud(
         high_shelf_gain_dB,
         high_shelf_cutoff_freq,
         high_shelf_q_factor,
@@ -140,7 +180,7 @@ def parametric_eq(
     b_s.append(b)
     a_s.append(a)
 
-    x_filtered = signal.approx_iir_filter_cascade(b_s, a_s, x)
+    x_filtered = dasp_pytorch.signal.apply_iir_via_fsm(b_s, a_s, x)
 
     return x_filtered
 
@@ -163,7 +203,7 @@ def compressor(
     However, the original design utilized a single time constant for the attack and release
     ballisitics in order to parallelize the branching recursive smoothing filter.
     This implementation builds on this using approximate ballisitics similar to those
-    introduced in [3]. This involves applying two 1-pole low pass filters to the gain reduction curve,
+    introduced in [3]. This involves applying two 1-pole lowpass filters to the gain reduction curve,
     each with different time constants. The final smoothed gain reduction curve is then computed
     by combining these two smoothed curves, setting only one to be active at a time based on
     the level of the gain reduction curve in relation to the threshold.
@@ -184,7 +224,7 @@ def compressor(
         x (torch.Tensor): Audio tensor with shape (bs, chs, seq_len).
         sample_rate (float): Audio sampling rate.
         threshold_db (torch.Tensor): Threshold at which to begin gain reduction.
-        ratio (torch>Tensor): Amount to reduce gain as a function of the distance above threshold.
+        ratio (torch.Tensor): Amount to reduce gain as a function of the distance above threshold.
         attack_ms (torch.Tensor): Attack time in milliseconds.
         release_ms (torch.Tensor): Release time in milliseconds.
         knee_db (torch.Tensor): Softness of the knee. Higher = softer. (Must be positive)
@@ -196,11 +236,15 @@ def compressor(
     """
     bs, chs, seq_len = x.size()  # check shape
 
-    threshold = threshold.squeeze()
-    ratio = ratio.squeeze()
-    attack_time = attack_time.squeeze()
-    makeup_gain_dB = makeup_gain_dB.squeeze()
+    # adjust shapes
+    threshold_db = threshold_db.view(bs, 1, 1)
+    ratio = ratio.view(bs, 1, 1)
+    attack_ms = attack_ms.view(bs, 1, 1)
+    release_ms = release_ms.view(bs, 1, 1)
+    knee_db = release_ms.view(bs, 1, 1)
+    makeup_gain_dB = makeup_gain_dB.view(bs, 1, 1)
 
+    # compute energy in dB
     x_db = 20 * torch.log10(torch.abs(x).clamp(eps))
 
     # compute time constants
@@ -229,12 +273,12 @@ def compressor(
     g_c = x_sc - x_db
 
     # attack smoothing
-    g_s_attack = signal.one_pole_lowpass(g_c, alpha_A)
+    g_s_attack = dasp_pytorch.signal.one_pole_filter(g_c, alpha_A)
     attack_mask = (x_db > threshold_db).float()
     g_s_attack_masked = g_s_attack * attack_mask
 
     # release smoothing
-    g_s_release = signal.one_pole_lowpass(g_c, alpha_R)
+    g_s_release = dasp_pytorch.signal.one_pole_filter(g_c, alpha_R)
     release_mask = (x_db <= threshold_db).float()
     g_s_release_masked = g_s_release * release_mask
 
@@ -292,8 +336,8 @@ def reverb():
         "Filtered noise shaping for time domain room impulse response estimation from reverberant speech."
         2021 IEEE Workshop on Applications of Signal Processing to Audio and Acoustics (WASPAA). IEEE, 2021.
 
-    [2] Moorer, James A. 
-        "About this reverberation business." 
+    [2] Moorer, James A.
+        "About this reverberation business."
         Computer Music Journal (1979): 13-28.
 
     Args:
@@ -357,3 +401,81 @@ def reverb():
     # y = (x * (1 - g)) + (wet * g)
 
     return y
+
+def stereo_widener(x: torch.Tensor, width: torch.Tensor):
+    """Stereo widener using mid-side processing.
+
+    Args:
+        x (torch.Tensor): Stereo audio tensor of shape (bs, 2, seq_len)
+        width (torch.Tensor): Stereo width control. Higher is wider. has shape (bs)
+
+    """
+    sqrt2 = np.sqrt(2)
+    mid = (x[..., 0, :] + x[..., 1, :]) / sqrt2
+    side = (x[..., 0, :] - x[..., 1, :]) / sqrt2
+
+    # amplify mid and side signal seperately:
+    mid *= 2 * (1 - width)
+    side *= 2 * width
+
+    # covert back to stereo
+    left = (mid + side) / sqrt2
+    right = (mid - side) / sqrt2
+
+    return torch.stack((left, right), dim=-2)
+
+def stereo_panner(x: torch.Tensor, pan: torch.Tensor):
+    """Take a mono single and pan across the stereo field.
+
+    Args:
+        x (torch.Tensor): Monophonic audio tensor of shape (bs, 1, seq_len).
+        pan (torch.Tensor): Pan value on the range from 0 to 1.
+
+    Returns:
+        x (torch.Tensor): Stereo audio tensor with panning of shape (bs, 2, seq_len)
+    """
+    # first scale the linear [0, 1] to [0, pi/2]
+    theta = pan * (np.pi / 2)
+
+    # compute gain coefficients
+    left_gain = np.sqrt(((np.pi / 2) - theta) * (2 / np.pi) * np.cos(theta))
+    right_gain = np.sqrt(theta * (2 / np.pi) * np.sin(theta))
+
+    # apply panning
+    x *= torch.stack((left_gain, right_gain), dim=1)
+
+    return x
+
+
+def channel_strip(
+    track: torch.Tensor,
+    input_gain_db: torch.Tensor,
+    output_gain_db: torch.Tensor,
+    pan: torch.Tensor,
+    parametric_eq_params: Dict = None,
+    compressor_params: Dict = None,
+):
+    """
+
+    Mono In -> Input Gain -> Parametric EQ -> Compressor -> Output Gain -> Pan => Stereo Out
+
+    Args:
+        track (torch.Tensor): Monophonic audio track with shape (bs, 1, seq_len)
+    """
+    bs, chs, seq_len = track.size()
+
+    # apply input gain
+    track *= 10 ** (input_gain_db.view(bs, 1, 1) / 20.0)
+
+    if parametric_eq_params is not None:
+        track = parametric_eq(track, **parametric_eq_params)
+
+    if compressor_params is not None:
+        track = compressor(track, **compressor_params)
+
+    # apply output gain
+    track *= 10 ** (output_gain_db.view(bs, 1, 1) / 20.0)
+
+    # apply stereo panning
+
+    return track

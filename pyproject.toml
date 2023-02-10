@@ -1,0 +1,18 @@
+
+[project]
+name = "dasp_pytorch"
+version = "0.0.1"
+description = "Differentiable audio processors in PyTorch."
+authors = [
+    { name = "Christian Steinmetz" },
+    { email = "c.j.steinmetz@qmul.ac.uk" },
+]
+dependencies = ["torch", "numpy",  "scipy"]
+
+[build-system]
+# Minimum requirements for the build system to execute.
+requires = ["setuptools", "wheel", "attrs"]
+build-backend = "setuptools.build_meta"
+
+[project.optional-dependencies]
+extra = ["matplotlib", "librosa"]
