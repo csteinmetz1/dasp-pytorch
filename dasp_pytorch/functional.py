@@ -455,37 +455,3 @@ def stereo_widener(x: torch.Tensor, width: torch.Tensor):
     right = (mid - side) / sqrt2
 
     return torch.stack((left, right), dim=-2)
-
-
-def channel_strip(
-    track: torch.Tensor,
-    input_gain_db: torch.Tensor,
-    output_gain_db: torch.Tensor,
-    pan: torch.Tensor,
-    parametric_eq_params: Dict = None,
-    compressor_params: Dict = None,
-):
-    """
-
-    Mono In -> Input Gain -> Parametric EQ -> Compressor -> Output Gain -> Pan => Stereo Out
-
-    Args:
-        track (torch.Tensor): Monophonic audio track with shape (bs, 1, seq_len)
-    """
-    bs, chs, seq_len = track.size()
-
-    # apply input gain
-    track *= 10 ** (input_gain_db.view(bs, 1, 1) / 20.0)
-
-    if parametric_eq_params is not None:
-        track = parametric_eq(track, **parametric_eq_params)
-
-    if compressor_params is not None:
-        track = compressor(track, **compressor_params)
-
-    # apply output gain
-    track *= 10 ** (output_gain_db.view(bs, 1, 1) / 20.0)
-
-    # apply stereo panning
-
-    return track
