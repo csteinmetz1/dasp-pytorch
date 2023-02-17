@@ -8,11 +8,43 @@ from typing import Dict, List
 
 
 def gain(x: torch.Tensor, gain_db: torch.Tensor):
-    bs, chs, seq_len = x.size()
-
+    # add proper dim to gain tensor for broadcasting
+    for _ in range(x.ndim - gain_db.ndim):
+        gain_db = gain_db.unsqueeze(-1)
     # convert gain from dB to linear
     gain_lin = 10 ** (gain_db / 20.0)
     return x * gain_lin
+
+
+def stereo_panner(x: torch.Tensor, pan: torch.Tensor):
+    """Take a mono signal and pan across the stereo field.
+
+    Args:
+        x (torch.Tensor): Monophonic audio tensor of shape (bs, num_tracks, 1, seq_len).
+        pan (torch.Tensor): Pan value on the range from 0 to 1.
+
+    Returns:
+        x (torch.Tensor): Stereo audio tensor with panning of shape (bs, num_tracks, 2, seq_len)
+    """
+    bs, num_tracks, _, seq_len = x.size()
+    # add proper dim to gain tensor for broadcasting
+    for _ in range(x.ndim - pan.ndim):
+        pan = pan.unsqueeze(-1)
+
+    # first scale the linear [0, 1] to [0, pi/2]
+    theta = pan * (np.pi / 2)
+
+    # compute gain coefficients
+    left_gain = torch.sqrt(((np.pi / 2) - theta) * (2 / np.pi) * torch.cos(theta))
+    right_gain = torch.sqrt(theta * (2 / np.pi) * torch.sin(theta))
+
+    x = x.repeat(1, 1, 2, 1)  # add stereo dim
+    gains = torch.cat((left_gain, right_gain), dim=2)
+
+    # apply panning
+    x *= gains
+
+    return x
 
 
 def simple_distortion(x: torch.Tensor, drive_db: torch.Tensor):
@@ -298,7 +330,6 @@ def compressor(
 
 
 def expander():
-
     # static characteristics with soft-knee
     x_sc = x_db.clone()
 
@@ -402,6 +433,7 @@ def reverb():
 
     return y
 
+
 def stereo_widener(x: torch.Tensor, width: torch.Tensor):
     """Stereo widener using mid-side processing.
 
@@ -423,28 +455,6 @@ def stereo_widener(x: torch.Tensor, width: torch.Tensor):
     right = (mid - side) / sqrt2
 
     return torch.stack((left, right), dim=-2)
-
-def stereo_panner(x: torch.Tensor, pan: torch.Tensor):
-    """Take a mono single and pan across the stereo field.
-
-    Args:
-        x (torch.Tensor): Monophonic audio tensor of shape (bs, 1, seq_len).
-        pan (torch.Tensor): Pan value on the range from 0 to 1.
-
-    Returns:
-        x (torch.Tensor): Stereo audio tensor with panning of shape (bs, 2, seq_len)
-    """
-    # first scale the linear [0, 1] to [0, pi/2]
-    theta = pan * (np.pi / 2)
-
-    # compute gain coefficients
-    left_gain = np.sqrt(((np.pi / 2) - theta) * (2 / np.pi) * np.cos(theta))
-    right_gain = np.sqrt(theta * (2 / np.pi) * np.sin(theta))
-
-    # apply panning
-    x *= torch.stack((left_gain, right_gain), dim=1)
-
-    return x
 
 
 def channel_strip(
