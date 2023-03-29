@@ -11,13 +11,14 @@ def gain(x: torch.Tensor, gain_db: torch.Tensor):
     bs, chs, seq_len = x.size()
 
     # convert gain from dB to linear
-    gain_lin = 10 ** (gain_db / 20.0)
+    gain_lin = 10 ** (gain_db.view(bs, chs, -1) / 20.0)
     return x * gain_lin
 
 
 def simple_distortion(x: torch.Tensor, drive_db: torch.Tensor):
     """Simple soft-clipping distortion with drive control."""
-    return torch.tanh(x * (10 ** (drive_db / 20.0)))
+    bs, chs, seq_len = x.size()
+    return torch.tanh(x * (10 ** (drive_db.view(bs, chs, -1) / 20.0)))
 
 
 def advanced_distortion(
@@ -298,7 +299,6 @@ def compressor(
 
 
 def expander():
-
     # static characteristics with soft-knee
     x_sc = x_db.clone()
 
@@ -402,6 +402,7 @@ def reverb():
 
     return y
 
+
 def stereo_widener(x: torch.Tensor, width: torch.Tensor):
     """Stereo widener using mid-side processing.
 
@@ -424,25 +425,34 @@ def stereo_widener(x: torch.Tensor, width: torch.Tensor):
 
     return torch.stack((left, right), dim=-2)
 
+
 def stereo_panner(x: torch.Tensor, pan: torch.Tensor):
     """Take a mono single and pan across the stereo field.
 
     Args:
-        x (torch.Tensor): Monophonic audio tensor of shape (bs, 1, seq_len).
+        x (torch.Tensor): Monophonic audio tensor of shape (bs, num_tracks, seq_len).
         pan (torch.Tensor): Pan value on the range from 0 to 1.
 
     Returns:
-        x (torch.Tensor): Stereo audio tensor with panning of shape (bs, 2, seq_len)
+        x (torch.Tensor): Stereo audio tensor with panning of shape (bs, num_tracks, 2, seq_len)
     """
+    bs, num_tracks, seq_len = x.size()
     # first scale the linear [0, 1] to [0, pi/2]
     theta = pan * (np.pi / 2)
 
     # compute gain coefficients
-    left_gain = np.sqrt(((np.pi / 2) - theta) * (2 / np.pi) * np.cos(theta))
-    right_gain = np.sqrt(theta * (2 / np.pi) * np.sin(theta))
+    left_gain = torch.sqrt(((np.pi / 2) - theta) * (2 / np.pi) * torch.cos(theta))
+    right_gain = torch.sqrt(theta * (2 / np.pi) * torch.sin(theta))
+
+    # make stereo
+    x = x.unsqueeze(1)
+    x = x.repeat(1, 2, 1, 1)
 
     # apply panning
-    x *= torch.stack((left_gain, right_gain), dim=1)
+    left_gain = left_gain.view(bs, 1, num_tracks, 1)
+    right_gain = right_gain.view(bs, 1, num_tracks, 1)
+    gains = torch.cat((left_gain, right_gain), dim=1)
+    x *= gains
 
     return x
 
