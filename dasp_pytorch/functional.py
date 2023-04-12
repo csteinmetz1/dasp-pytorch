@@ -10,7 +10,7 @@ from typing import Dict, List
 def gain(x: torch.Tensor, gain_db: torch.Tensor):
     bs, chs, seq_len = x.size()
 
-    # convert gain from dB to linear
+    # convert gain from db to linear
     gain_lin = 10 ** (gain_db.view(bs, chs, -1) / 20.0)
     return x * gain_lin
 
@@ -70,22 +70,22 @@ def graphic_eq():
 def parametric_eq(
     x: torch.Tensor,
     sample_rate: float,
-    low_shelf_gain_dB: torch.Tensor,
+    low_shelf_gain_db: torch.Tensor,
     low_shelf_cutoff_freq: torch.Tensor,
     low_shelf_q_factor: torch.Tensor,
-    first_band_gain_dB: torch.Tensor,
-    first_band_cutoff_freq: torch.Tensor,
-    first_band_q_factor: torch.Tensor,
-    second_band_gain_dB: torch.Tensor,
-    second_band_cutoff_freq: torch.Tensor,
-    second_band_q_factor: torch.Tensor,
-    third_band_gain_dB: torch.Tensor,
-    third_band_cutoff_freq: torch.Tensor,
-    third_band_q_factor: torch.Tensor,
-    fourth_band_gain_dB: torch.Tensor,
-    fourth_band_cutoff_freq: torch.Tensor,
-    fourth_band_q_factor: torch.Tensor,
-    high_shelf_gain_dB: torch.Tensor,
+    band0_gain_db: torch.Tensor,
+    band0_cutoff_freq: torch.Tensor,
+    band0_q_factor: torch.Tensor,
+    band1_gain_db: torch.Tensor,
+    band1_cutoff_freq: torch.Tensor,
+    band1_q_factor: torch.Tensor,
+    band2_gain_db: torch.Tensor,
+    band2_cutoff_freq: torch.Tensor,
+    band2_q_factor: torch.Tensor,
+    band3_gain_db: torch.Tensor,
+    band3_cutoff_freq: torch.Tensor,
+    band3_q_factor: torch.Tensor,
+    high_shelf_gain_db: torch.Tensor,
     high_shelf_cutoff_freq: torch.Tensor,
     high_shelf_q_factor: torch.Tensor,
 ):
@@ -113,77 +113,68 @@ def parametric_eq(
         x (torch.Tensor): 1d signal.
         sample_rate (float):
     """
-    a_s, b_s = [], []
+    bs = x.size(0)
 
-    # -------- design low-shelf filter --------
-    b, a = dasp_pytorch.signal.biqaud(
-        low_shelf_gain_dB,
+    # six second order sections
+    sos = torch.zeros(bs, 6, 6).type_as(low_shelf_gain_db)
+    # ------------ low shelf ------------
+    b, a = dasp_pytorch.signal.biquad(
+        low_shelf_gain_db,
         low_shelf_cutoff_freq,
         low_shelf_q_factor,
         sample_rate,
         "low_shelf",
     )
-    b_s.append(b)
-    a_s.append(a)
-
-    # -------- design first-band peaking filter --------
-    b, a = dasp_pytorch.signal.biqaud(
-        first_band_gain_dB,
-        first_band_cutoff_freq,
-        first_band_q_factor,
+    sos[:, 0, :] = torch.cat((b, a), dim=-1)
+    # ------------ band0 ------------
+    b, a = dasp_pytorch.signal.biquad(
+        band0_gain_db,
+        band0_cutoff_freq,
+        band0_q_factor,
         sample_rate,
         "peaking",
     )
-    b_s.append(b)
-    a_s.append(a)
-
-    # -------- design second-band peaking filter --------
-    b, a = dasp_pytorch.signal.biqaud(
-        second_band_gain_dB,
-        second_band_cutoff_freq,
-        second_band_q_factor,
+    sos[:, 1, :] = torch.cat((b, a), dim=-1)
+    # ------------ band1 ------------
+    b, a = dasp_pytorch.signal.biquad(
+        band1_gain_db,
+        band1_cutoff_freq,
+        band1_q_factor,
         sample_rate,
         "peaking",
     )
-    b_s.append(b)
-    a_s.append(a)
-
-    # -------- design third-band peaking filter --------
-    b, a = dasp_pytorch.signal.biqaud(
-        third_band_gain_dB,
-        third_band_cutoff_freq,
-        third_band_q_factor,
+    sos[:, 2, :] = torch.cat((b, a), dim=-1)
+    # ------------ band2 ------------
+    b, a = dasp_pytorch.signal.biquad(
+        band2_gain_db,
+        band2_cutoff_freq,
+        band2_q_factor,
         sample_rate,
         "peaking",
     )
-    b_s.append(b)
-    a_s.append(a)
-
-    # -------- design fourth-band peaking filter --------
-    b, a = dasp_pytorch.signal.biqaud(
-        fourth_band_gain_dB,
-        fourth_band_cutoff_freq,
-        fourth_band_q_factor,
+    sos[:, 3, :] = torch.cat((b, a), dim=-1)
+    # ------------ band3 ------------
+    b, a = dasp_pytorch.signal.biquad(
+        band3_gain_db,
+        band3_cutoff_freq,
+        band3_q_factor,
         sample_rate,
         "peaking",
     )
-    b_s.append(b)
-    a_s.append(a)
-
-    # -------- design high-shelf filter --------
-    b, a = dasp_pytorch.signal.biqaud(
-        high_shelf_gain_dB,
+    sos[:, 4, :] = torch.cat((b, a), dim=-1)
+    # ------------ high shelf ------------
+    b, a = dasp_pytorch.signal.biquad(
+        high_shelf_gain_db,
         high_shelf_cutoff_freq,
         high_shelf_q_factor,
         sample_rate,
         "high_shelf",
     )
-    b_s.append(b)
-    a_s.append(a)
+    sos[:, 5, :] = torch.cat((b, a), dim=-1)
 
-    x_filtered = dasp_pytorch.signal.apply_iir_via_fsm(b_s, a_s, x)
+    x_out = dasp_pytorch.signal.sosfilt_via_fsm(sos, x)
 
-    return x_filtered
+    return x_out
 
 
 def compressor(
@@ -242,18 +233,19 @@ def compressor(
     ratio = ratio.view(bs, 1, 1)
     attack_ms = attack_ms.view(bs, 1, 1)
     release_ms = release_ms.view(bs, 1, 1)
-    knee_db = release_ms.view(bs, 1, 1)
-    makeup_gain_dB = makeup_gain_dB.view(bs, 1, 1)
+    knee_db = knee_db.view(bs, 1, 1)
+    makeup_gain_db = makeup_gain_db.view(bs, 1, 1)
 
-    # compute energy in dB
+    # compute energy in db
     x_db = 20 * torch.log10(torch.abs(x).clamp(eps))
 
     # compute time constants
     normalized_attack_time = sample_rate * (attack_ms / 1e3)
-    normalized_release_time = sample_rate * (release_ms / 1e3)
+    # normalized_release_time = sample_rate * (release_ms / 1e3)
     constant = torch.tensor([9.0]).type_as(attack_ms)
     alpha_A = torch.exp(-torch.log(constant) / normalized_attack_time)
-    alpha_R = torch.exp(-torch.log(constant) / normalized_release_time)
+    # alpha_R = torch.exp(-torch.log(constant) / normalized_release_time)
+    # note that release time constant is not used in the smoothing filter
 
     # static characteristic with soft knee
     x_sc = x_db.clone()
@@ -264,32 +256,28 @@ def compressor(
     idx1 = x_db >= (threshold_db - (knee_db / 2))
     idx2 = x_db <= (threshold_db + (knee_db / 2))
     idx = torch.logical_and(idx1, idx2)
-    x_sc[idx] = x_db + ((1 / ratio) - 1)
+    x_sc_below = x_db + ((1 / ratio) - 1) * (
+        (x_db - threshold_db + (knee_db / 2)) ** 2
+    ) / (2 * knee_db)
+    x_sc[idx] = x_sc_below[idx]
 
     # when signal is above threshold linear response
     idx = x_db > (threshold_db + (knee_db / 2))
-    x_sc[idx] = threshold_db + ((x_db[idx] - threshold_db) / ratio)
+    x_sc_above = threshold_db + ((x_db - threshold_db) / ratio)
+    x_sc[idx] = x_sc_above[idx]
 
     # output of gain computer
     g_c = x_sc - x_db
 
-    # attack smoothing
-    g_s_attack = dasp_pytorch.signal.one_pole_filter(g_c, alpha_A)
-    attack_mask = (x_db > threshold_db).float()
-    g_s_attack_masked = g_s_attack * attack_mask
-
-    # release smoothing
-    g_s_release = dasp_pytorch.signal.one_pole_filter(g_c, alpha_R)
-    release_mask = (x_db <= threshold_db).float()
-    g_s_release_masked = g_s_release * release_mask
-
-    # combine both signals
-    g_s = g_s_attack_masked + g_s_release_masked
+    # design attack/release smoothing filter
+    b = torch.cat([(1 - alpha_A), torch.zeros(bs, 1, 1)], dim=-1).squeeze(1)
+    a = torch.cat([torch.ones(bs, 1, 1), -alpha_A], dim=-1).squeeze(1)
+    g_c_attack = dasp_pytorch.signal.lfilter_via_fsm(g_c, b, a)
 
     # add makeup gain in db
-    g_s = g_s + makeup_gain_db
+    g_s = g_c_attack + makeup_gain_db
 
-    # convert dB gains back to linear
+    # convert db gains back to linear
     g_lin = 10 ** (g_s / 20.0)
 
     # apply time-varying gain and makeup gain
