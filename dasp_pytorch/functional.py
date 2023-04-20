@@ -110,13 +110,57 @@ def parametric_eq(
         Journal of the Audio Engineering Society. Vol. 70, Issue 9, 2022, pp. 708-721.
 
     Args:
-        x (torch.Tensor): 1d signal.
-        sample_rate (float):
+        x (torch.Tensor): Time domain tensor with shape (bs, chs, seq_len)
+        sample_rate (float): Audio sample rate.
+        low_shelf_gain_db (torch.Tensor): Low-shelf filter gain in dB.
+        low_shelf_cutoff_freq (torch.Tensor): Low-shelf filter cutoff frequency in Hz.
+        low_shelf_q_factor (torch.Tensor): Low-shelf filter Q-factor.
+        band0_gain_db (torch.Tensor): Band 1 filter gain in dB.
+        band0_cutoff_freq (torch.Tensor): Band 1 filter cutoff frequency in Hz.
+        band0_q_factor (torch.Tensor): Band 1 filter Q-factor.
+        band1_gain_db (torch.Tensor): Band 2 filter gain in dB.
+        band1_cutoff_freq (torch.Tensor): Band 2 filter cutoff frequency in Hz.
+        band1_q_factor (torch.Tensor): Band 2 filter Q-factor.
+        band2_gain_db (torch.Tensor): Band 3 filter gain in dB.
+        band2_cutoff_freq (torch.Tensor): Band 3 filter cutoff frequency in Hz.
+        band2_q_factor (torch.Tensor): Band 3 filter Q-factor.
+        band3_gain_db (torch.Tensor): Band 4 filter gain in dB.
+        band3_cutoff_freq (torch.Tensor): Band 4 filter cutoff frequency in Hz.
+        band3_q_factor (torch.Tensor): Band 4 filter Q-factor.
+        high_shelf_gain_db (torch.Tensor): High-shelf filter gain in dB.
+        high_shelf_cutoff_freq (torch.Tensor): High-shelf filter cutoff frequency in Hz.
+        high_shelf_q_factor (torch.Tensor): High-shelf filter Q-factor.
+
+    Returns:
+        y (torch.Tensor): Filtered signal.
     """
-    bs = x.size(0)
+    bs, chs, seq_len = x.size()
+
+    # reshape to move everything to batch dim
+    x = x.view(-1, 1, seq_len)
+    low_shelf_gain_db = low_shelf_gain_db.view(-1, 1, 1)
+    low_shelf_cutoff_freq = low_shelf_cutoff_freq.view(-1, 1, 1)
+    low_shelf_q_factor = low_shelf_q_factor.view(-1, 1, 1)
+    band0_gain_db = band0_gain_db.view(-1, 1, 1)
+    band0_cutoff_freq = band0_cutoff_freq.view(-1, 1, 1)
+    band0_q_factor = band0_q_factor.view(-1, 1, 1)
+    band1_gain_db = band1_gain_db.view(-1, 1, 1)
+    band1_cutoff_freq = band1_cutoff_freq.view(-1, 1, 1)
+    band1_q_factor = band1_q_factor.view(-1, 1, 1)
+    band2_gain_db = band2_gain_db.view(-1, 1, 1)
+    band2_cutoff_freq = band2_cutoff_freq.view(-1, 1, 1)
+    band2_q_factor = band2_q_factor.view(-1, 1, 1)
+    band3_gain_db = band3_gain_db.view(-1, 1, 1)
+    band3_cutoff_freq = band3_cutoff_freq.view(-1, 1, 1)
+    band3_q_factor = band3_q_factor.view(-1, 1, 1)
+    high_shelf_gain_db = high_shelf_gain_db.view(-1, 1, 1)
+    high_shelf_cutoff_freq = high_shelf_cutoff_freq.view(-1, 1, 1)
+    high_shelf_q_factor = high_shelf_q_factor.view(-1, 1, 1)
+
+    eff_bs = x.size(0)
 
     # six second order sections
-    sos = torch.zeros(bs, 6, 6).type_as(low_shelf_gain_db)
+    sos = torch.zeros(eff_bs, 6, 6).type_as(low_shelf_gain_db)
     # ------------ low shelf ------------
     b, a = dasp_pytorch.signal.biquad(
         low_shelf_gain_db,
@@ -174,6 +218,9 @@ def parametric_eq(
 
     x_out = dasp_pytorch.signal.sosfilt_via_fsm(sos, x)
 
+    # move channels back
+    x_out = x_out.view(bs, chs, seq_len)
+
     return x_out
 
 
@@ -228,13 +275,15 @@ def compressor(
     """
     bs, chs, seq_len = x.size()  # check shape
 
-    # adjust shapes
-    threshold_db = threshold_db.view(bs, 1, 1)
-    ratio = ratio.view(bs, 1, 1)
-    attack_ms = attack_ms.view(bs, 1, 1)
-    release_ms = release_ms.view(bs, 1, 1)
-    knee_db = knee_db.view(bs, 1, 1)
-    makeup_gain_db = makeup_gain_db.view(bs, 1, 1)
+    # if multiple channels are present, shift them to the batch dimension
+    x = x.view(-1, 1, seq_len)
+    threshold_db = threshold_db.view(-1, 1, 1)
+    ratio = ratio.view(-1, 1, 1)
+    attack_ms = attack_ms.view(-1, 1, 1)
+    release_ms = release_ms.view(-1, 1, 1)
+    knee_db = knee_db.view(-1, 1, 1)
+    makeup_gain_db = makeup_gain_db.view(-1, 1, 1)
+    eff_bs = x.size(0)
 
     # compute energy in db
     x_db = 20 * torch.log10(torch.abs(x).clamp(eps))
@@ -270,8 +319,8 @@ def compressor(
     g_c = x_sc - x_db
 
     # design attack/release smoothing filter
-    b = torch.cat([(1 - alpha_A), torch.zeros(bs, 1, 1)], dim=-1).squeeze(1)
-    a = torch.cat([torch.ones(bs, 1, 1), -alpha_A], dim=-1).squeeze(1)
+    b = torch.cat([(1 - alpha_A), torch.zeros(eff_bs, 1, 1)], dim=-1).squeeze(1)
+    a = torch.cat([torch.ones(eff_bs, 1, 1), -alpha_A], dim=-1).squeeze(1)
     g_c_attack = dasp_pytorch.signal.lfilter_via_fsm(g_c, b, a)
 
     # add makeup gain in db
@@ -282,6 +331,9 @@ def compressor(
 
     # apply time-varying gain and makeup gain
     y = x * g_lin
+
+    # move channels back to the channel dimension
+    y = y.view(bs, chs, seq_len)
 
     return y
 

@@ -104,13 +104,14 @@ def lfilter_via_fsm(x: torch.Tensor, b: torch.Tensor, a: torch.Tensor = None):
     """Use the frequency sampling method to approximate an IIR filter.
     The filter will be applied along the final dimension of x.
     Args:
-        x (torch.Tensor): Time domain signal with shape (bs, ... , timesteps)
+        x (torch.Tensor): Time domain signal with shape (bs, 1, timesteps)
         b (torch.Tensor): Numerator coefficients with shape (bs, N).
         a (torch.Tensor): Denominator coefficients with shape (bs, N).
     Returns:
-        y (torch.Tensor): Filtered time domain signal with shape (bs, ..., timesteps)
+        y (torch.Tensor): Filtered time domain signal with shape (bs, 1, timesteps)
     """
-    bs = x.size(0)
+    bs, chs, seq_len = x.size()  # enforce shape
+    assert chs == 1
 
     # round up to nearest power of 2 for FFT
     n_fft = 2 ** torch.ceil(torch.log2(torch.tensor(x.shape[-1] + x.shape[-1] - 1)))
