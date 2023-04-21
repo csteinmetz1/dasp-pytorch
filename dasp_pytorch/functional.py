@@ -319,8 +319,12 @@ def compressor(
     g_c = x_sc - x_db
 
     # design attack/release smoothing filter
-    b = torch.cat([(1 - alpha_A), torch.zeros(eff_bs, 1, 1)], dim=-1).squeeze(1)
-    a = torch.cat([torch.ones(eff_bs, 1, 1), -alpha_A], dim=-1).squeeze(1)
+    b = torch.cat(
+        [(1 - alpha_A), torch.zeros(eff_bs, 1, 1).type_as(alpha_A)], dim=-1
+    ).squeeze(1)
+    a = torch.cat(
+        [torch.ones(eff_bs, 1, 1).type_as(alpha_A), -alpha_A], dim=-1
+    ).squeeze(1)
     g_c_attack = dasp_pytorch.signal.lfilter_via_fsm(g_c, b, a)
 
     # add makeup gain in db
