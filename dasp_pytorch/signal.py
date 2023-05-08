@@ -42,7 +42,6 @@ def freqdomain_fir(x, H, n_fft):
 def octave_band_filterbank(num_taps: int, sample_rate: float):
     # create octave-spaced bandpass filters
     bands = [
-        16,
         31.5,
         63,
         125,
@@ -51,15 +50,8 @@ def octave_band_filterbank(num_taps: int, sample_rate: float):
         1000,
         2000,
         4000,
-        5000,
-        6000,
-        7000,
         8000,
-        10000,
-        12000,
-        14000,
         16000,
-        18000,
     ]
     num_bands = len(bands) + 2
     filts = []  # storage for computed filter coefficients

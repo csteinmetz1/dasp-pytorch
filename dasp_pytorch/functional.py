@@ -4,6 +4,7 @@ import scipy.signal
 import dasp_pytorch.signal
 import matplotlib.pyplot as plt
 
+from functools import partial
 from typing import Dict, List
 
 
@@ -368,11 +369,19 @@ def expander():
     return x
 
 
-def reverb():
-    """Artificial reveberation.
+def reverb(
+    x: torch.Tensor,
+    sample_rate: float,
+    band_gains: torch.Tensor,
+    band_decays: torch.Tensor,
+    mix: torch.Tensor,
+    num_samples: int = 88200,
+    num_bandpass_taps: int = 1023,
+):
+    """Artificial reverberation.
 
-    This differentiable artifical reveberation model is based on the idea of
-    filtered nosie shaping, similar to that proposed in [1]. This approach leverages
+    This differentiable artificial reverberation model is based on the idea of
+    filtered noise shaping, similar to that proposed in [1]. This approach leverages
     the well known idea that a room impulse response (RIR) can be modeled as the direct sound,
     a set of early reflections, and a decaying noise-like tail [2].
 
@@ -385,64 +394,80 @@ def reverb():
         Computer Music Journal (1979): 13-28.
 
     Args:
-        x (torch.Tensor):
-        sample_rate (float):
+        x (torch.Tensor): Input audio signal. Shape (bs, chs, seq_len).
+        sample_rate (float): Audio sample rate.
+        band_gains (torch.Tensor): Gain for each octave band on (0,1). Shape (bs, 12, 1).
+        band_decays (torch.Tensor): Decay parameter for each octave band (0,1). Shape (bs, 12, 1).
+        mix (torch.Tensor): Mix between dry and wet signal. Shape (bs, 1).
+        num_samples (int, optional): Number of samples to use for IR generation. Defaults to 88200.
+        num_bandpass_taps (int, optional): Number of filter taps for the octave band filterbank filters. Must be odd. Defaults to 1023.
 
     Returns:
-        y (torch.Tensor):
+        y (torch.Tensor): Reverberated signal. Shape (bs, chs, seq_len).
+
+    TODO:
+        - add support for stereo reverberation
+
 
     """
-    # d are the decay parameters for each band
-    # g are the gains for each band
+    assert num_bandpass_taps % 2 == 1, "num_bandpass_taps must be odd"
 
-    bs, chs, samp = x.size()
+    bs, chs, seq_len = x.size()
+    assert chs <= 2, "only mono/stereo signals are supported"
+
+    # if mono copy to stereo
+    if chs == 1:
+        x = x.repeat(1, 2, 1)
+        chs = 2
+
+    # create the octave band filterbank filters
+    filters = dasp_pytorch.signal.octave_band_filterbank(num_bandpass_taps, sample_rate)
+    num_bands = filters.shape[0]
+
+    # reshape gain and decay parameters
+    band_gains = band_gains.view(bs, num_bands, 1)
+    band_decays = band_decays.view(bs, num_bands, 1)
 
     # generate white noise for IR generation
-    pad_size = self.num_taps - 1
-    wn = torch.randn(1, self.num_bands, self.num_samples + pad_size).type_as(d)
+    pad_size = num_bandpass_taps - 1
+    wn = torch.randn(bs * 2, num_bands, num_samples + pad_size).type_as(x)
 
     # filter white noise signals with each bandpass filter
     wn_filt = torch.nn.functional.conv1d(
         wn,
-        self.filts,
-        groups=self.num_bands,
+        filters,
+        groups=num_bands,
         # padding=self.num_taps -1,
     )
-    # shape: bs x num_bands x num_samples
+    # shape: (bs * 2, num_bands, num_samples)
+    wn_filt = wn_filt.view(bs, 2, num_bands, num_samples)
 
     # apply bandwise decay parameters (envelope)
-    t = torch.linspace(0, 1, steps=self.num_samples).type_as(d)  # timesteps
-    # d = (torch.rand(bs, self.num_bands, 1) * 15) + 5
-    d = (d * 1000) + 1.0
-    env = torch.exp(-d * t.view(1, 1, -1))
+    t = torch.linspace(0, 1, steps=num_samples).type_as(x)  # timesteps
+    band_decays = (band_decays * 10.0) + 1.0
+    env = torch.exp(-band_decays * t.view(1, 1, -1))
 
+    # fig, axs = plt.subplots()
     # for e_idx in np.arange(env.shape[1]):
     #    plt.plot(env[0, e_idx, :].squeeze().numpy())
-    #    plt.savefig("env.png", dpi=300)
+    # plt.savefig("env.png", dpi=300)
 
-    wn_filt *= env * g
+    wn_filt *= env * band_gains
 
-    # sum signals to create impulse shape: bs x 1 x num_samp
-    w_filt_sum = wn_filt.mean(1, keepdim=True)
-    w_filt_sum = w_filt_sum.unsqueeze(1)  # hape: bs x 1 x 1 x num_samp
+    # sum signals to create impulse shape: bs, 2, 1, num_samp
+    w_filt_sum = wn_filt.mean(2, keepdim=True)
+    print(w_filt_sum.shape)
 
     # plt.plot(w_filt_sum[0, ...].squeeze().numpy())
     # plt.savefig("impulse.png", dpi=300)
 
     # apply impulse response for each batch item (vectorized)
-    # x_pad = torch.nn.functional.pad(x, (self.num_samples - 1, 0))
-    # wet = self.vconv1d(
-    #    x_pad,
-    #    torch.flip(w_filt_sum, dims=[-1]),
-    # )
-
-    # this is the RIR
-    # y = torch.flip(w_filt_sum, dims=[-1])
-    y = w_filt_sum.view(1, -1)
+    x_pad = torch.nn.functional.pad(x, (num_samples - 1, 0))
+    vconv1d = torch.vmap(partial(torch.nn.functional.conv1d, groups=2), in_dims=0)
+    y = vconv1d(x_pad, torch.flip(w_filt_sum, dims=[-1]))
 
     # create a wet/dry mix
-    # g = 0.1
-    # y = (x * (1 - g)) + (wet * g)
+    y = (1 - mix) * x + mix * y
 
     return y
 
@@ -459,7 +484,7 @@ def stereo_widener(x: torch.Tensor, width: torch.Tensor):
     mid = (x[..., 0, :] + x[..., 1, :]) / sqrt2
     side = (x[..., 0, :] - x[..., 1, :]) / sqrt2
 
-    # amplify mid and side signal seperately:
+    # amplify mid and side signal separately:
     mid *= 2 * (1 - width)
     side *= 2 * width
 
