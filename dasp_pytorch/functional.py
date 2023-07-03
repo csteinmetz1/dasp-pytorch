@@ -15,6 +15,38 @@ def gain(x: torch.Tensor, gain_db: torch.Tensor):
     return x * gain_lin
 
 
+def stereo_bus(x: torch.tensor, send_db: torch.Tensor):
+    """Stereo bus with controllable send levels.
+
+    Given a tensor containing a set of audio tracks, create a stereo bus by summing the tracks
+    according to the relative send levels. The result will be a stereo signal. Note that all
+    input tracks are expected to be stereo.
+
+    Args:
+        x (torch.Tensor): Input audio tensor with shape (bs, 2, tracks, seq_len)
+        send_db (torch.Tensor): Send levels in dB with shape (bs, tracks, 1)
+
+    Returns:
+        torch.Tensor: Output audio tensor with shape (bs, 2, seq_len)
+
+    """
+    bs, chs, tracks, seq_len = x.size()
+
+    assert chs == 2, "Input tensor must have shape (bs, 2, tracks, seq_len)"
+
+    # convert send levels from db to linear
+    sends_lin = 10 ** (send_db.view(bs, 1, tracks, 1) / 20.0)
+
+    # apply send levels
+    x_bus = x * sends_lin
+
+    # sum tracks to stereo bus
+    x_bus = x_bus.sum(dim=2, keepdim=False)
+
+    # apply send levels
+    return x_bus
+
+
 def simple_distortion(x: torch.Tensor, drive_db: torch.Tensor):
     """Simple soft-clipping distortion with drive control."""
     bs, chs, seq_len = x.size()
@@ -370,11 +402,33 @@ def expander():
     return x
 
 
-def reverb(
+def noise_shaped_reverberation(
     x: torch.Tensor,
     sample_rate: float,
-    band_gains: torch.Tensor,
-    band_decays: torch.Tensor,
+    band0_gain: torch.Tensor,
+    band1_gain: torch.Tensor,
+    band2_gain: torch.Tensor,
+    band3_gain: torch.Tensor,
+    band4_gain: torch.Tensor,
+    band5_gain: torch.Tensor,
+    band6_gain: torch.Tensor,
+    band7_gain: torch.Tensor,
+    band8_gain: torch.Tensor,
+    band9_gain: torch.Tensor,
+    band10_gain: torch.Tensor,
+    band11_gain: torch.Tensor,
+    band0_decay: torch.Tensor,
+    band1_decay: torch.Tensor,
+    band2_decay: torch.Tensor,
+    band3_decay: torch.Tensor,
+    band4_decay: torch.Tensor,
+    band5_decay: torch.Tensor,
+    band6_decay: torch.Tensor,
+    band7_decay: torch.Tensor,
+    band8_decay: torch.Tensor,
+    band9_decay: torch.Tensor,
+    band10_decay: torch.Tensor,
+    band11_decay: torch.Tensor,
     mix: torch.Tensor,
     num_samples: int = 88200,
     num_bandpass_taps: int = 1023,
@@ -397,18 +451,36 @@ def reverb(
     Args:
         x (torch.Tensor): Input audio signal. Shape (bs, chs, seq_len).
         sample_rate (float): Audio sample rate.
-        band_gains (torch.Tensor): Gain for each octave band on (0,1). Shape (bs, 12, 1).
-        band_decays (torch.Tensor): Decay parameter for each octave band (0,1). Shape (bs, 12, 1).
+        band0_gain (torch.Tensor): Gain for first octave band on (0,1). Shape (bs, 1).
+        band1_gain (torch.Tensor): Gain for second octave band on (0,1). Shape (bs, 1).
+        band2_gain (torch.Tensor): Gain for third octave band on (0,1). Shape (bs, 1).
+        band3_gain (torch.Tensor): Gain for fourth octave band on (0,1). Shape (bs, 1).
+        band4_gain (torch.Tensor): Gain for fifth octave band on (0,1). Shape (bs, 1).
+        band5_gain (torch.Tensor): Gain for sixth octave band on (0,1). Shape (bs, 1).
+        band6_gain (torch.Tensor): Gain for seventh octave band on (0,1). Shape (bs, 1).
+        band7_gain (torch.Tensor): Gain for eighth octave band on (0,1). Shape (bs, 1).
+        band8_gain (torch.Tensor): Gain for ninth octave band on (0,1). Shape (bs, 1).
+        band9_gain (torch.Tensor): Gain for tenth octave band on (0,1). Shape (bs, 1).
+        band10_gain (torch.Tensor): Gain for eleventh octave band on (0,1). Shape (bs, 1).
+        band11_gain (torch.Tensor): Gain for twelfth octave band on (0,1). Shape (bs, 1).
+        band0_decays (torch.Tensor): Decay parameter for first octave band (0,1). Shape (bs, 1).
+        band1_decays (torch.Tensor): Decay parameter for second octave band (0,1). Shape (bs, 1).
+        band2_decays (torch.Tensor): Decay parameter for third octave band (0,1). Shape (bs, 1).
+        band3_decays (torch.Tensor): Decay parameter for fourth octave band (0,1). Shape (bs, 1).
+        band4_decays (torch.Tensor): Decay parameter for fifth octave band (0,1). Shape (bs, 1).
+        band5_decays (torch.Tensor): Decay parameter for sixth octave band (0,1). Shape (bs, 1).
+        band6_decays (torch.Tensor): Decay parameter for seventh octave band (0,1). Shape (bs, 1).
+        band7_decays (torch.Tensor): Decay parameter for eighth octave band (0,1). Shape (bs, 1).
+        band8_decays (torch.Tensor): Decay parameter for ninth octave band (0,1). Shape (bs, 1).
+        band9_decays (torch.Tensor): Decay parameter for tenth octave band (0,1). Shape (bs, 1).
+        band10_decays (torch.Tensor): Decay parameter for eleventh octave band (0,1). Shape (bs, 1).
+        band11_decays (torch.Tensor): Decay parameter for twelfth octave band (0,1). Shape (bs, 1).
         mix (torch.Tensor): Mix between dry and wet signal. Shape (bs, 1).
         num_samples (int, optional): Number of samples to use for IR generation. Defaults to 88200.
         num_bandpass_taps (int, optional): Number of filter taps for the octave band filterbank filters. Must be odd. Defaults to 1023.
 
     Returns:
         y (torch.Tensor): Reverberated signal. Shape (bs, chs, seq_len).
-
-    TODO:
-        - add support for stereo reverberation
-
 
     """
     assert num_bandpass_taps % 2 == 1, "num_bandpass_taps must be odd"
@@ -420,6 +492,47 @@ def reverb(
     if chs == 1:
         x = x.repeat(1, 2, 1)
         chs = 2
+
+    # stack gains and decays into a single tensor
+    band_gains = torch.stack(
+        [
+            band0_gain,
+            band1_gain,
+            band2_gain,
+            band3_gain,
+            band4_gain,
+            band5_gain,
+            band6_gain,
+            band7_gain,
+            band8_gain,
+            band9_gain,
+            band10_gain,
+            band11_gain,
+        ],
+        dim=1,
+    )
+    band_gains = band_gains.unsqueeze(-1)
+
+    band_decays = torch.stack(
+        [
+            band0_decay,
+            band1_decay,
+            band2_decay,
+            band3_decay,
+            band4_decay,
+            band5_decay,
+            band6_decay,
+            band7_decay,
+            band8_decay,
+            band9_decay,
+            band10_decay,
+            band11_decay,
+        ],
+        dim=1,
+    )
+    band_decays = band_decays.unsqueeze(-1)
+
+    print(band_gains.shape, band_decays.shape)
 
     # create the octave band filterbank filters
     filters = dasp_pytorch.signal.octave_band_filterbank(num_bandpass_taps, sample_rate)
@@ -453,6 +566,7 @@ def reverb(
     #    plt.plot(env[0, e_idx, :].squeeze().numpy())
     # plt.savefig("env.png", dpi=300)
 
+    print(wn_filt.shape, env.shape, band_gains.shape)
     wn_filt *= env * band_gains
 
     # sum signals to create impulse shape: bs, 2, 1, num_samp
