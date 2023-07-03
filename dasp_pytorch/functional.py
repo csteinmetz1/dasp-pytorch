@@ -2,7 +2,6 @@ import torch
 import numpy as np
 import scipy.signal
 import dasp_pytorch.signal
-import matplotlib.pyplot as plt
 
 from functools import partial
 from typing import Dict, List
@@ -40,7 +39,7 @@ def advanced_distortion(
         dc_offset (torch.Tensor):
         sample_rate (float):
 
-    The tone filter is implemented as a weight sum of 1st order highpass and lowpass filters.
+    The tone filter is implemented as a weighted sum of 1st order highpass and lowpass filters.
     This is based on the design of the Boss guituar pedal modelled in [2]. Their design uses a
     highpass with corner frequency 1.16 kHz and a lowpass with corner frequency 320 Hz.
 
@@ -321,10 +320,12 @@ def compressor(
 
     # design attack/release smoothing filter
     b = torch.cat(
-        [(1 - alpha_A), torch.zeros(eff_bs, 1, 1).type_as(alpha_A)], dim=-1
+        [(1 - alpha_A), torch.zeros(eff_bs, 1, 1).type_as(alpha_A)],
+        dim=-1,
     ).squeeze(1)
     a = torch.cat(
-        [torch.ones(eff_bs, 1, 1).type_as(alpha_A), -alpha_A], dim=-1
+        [torch.ones(eff_bs, 1, 1).type_as(alpha_A), -alpha_A],
+        dim=-1,
     ).squeeze(1)
     g_c_attack = dasp_pytorch.signal.lfilter_via_fsm(g_c, b, a)
 
