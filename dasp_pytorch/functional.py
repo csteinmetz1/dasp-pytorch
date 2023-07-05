@@ -430,7 +430,7 @@ def noise_shaped_reverberation(
     band10_decay: torch.Tensor,
     band11_decay: torch.Tensor,
     mix: torch.Tensor,
-    num_samples: int = 88200,
+    num_samples: int = 65536,
     num_bandpass_taps: int = 1023,
 ):
     """Artificial reverberation.
@@ -532,15 +532,14 @@ def noise_shaped_reverberation(
     )
     band_decays = band_decays.unsqueeze(-1)
 
-    print(band_gains.shape, band_decays.shape)
-
     # create the octave band filterbank filters
     filters = dasp_pytorch.signal.octave_band_filterbank(num_bandpass_taps, sample_rate)
     num_bands = filters.shape[0]
 
-    # reshape gain and decay parameters
-    band_gains = band_gains.view(bs, num_bands, 1)
-    band_decays = band_decays.view(bs, num_bands, 1)
+    # reshape gain, decay, and mix parameters
+    band_gains = band_gains.view(bs, 1, num_bands, 1)
+    band_decays = band_decays.view(bs, 1, num_bands, 1)
+    mix = mix.view(bs, 1, 1)
 
     # generate white noise for IR generation
     pad_size = num_bandpass_taps - 1
@@ -559,19 +558,17 @@ def noise_shaped_reverberation(
     # apply bandwise decay parameters (envelope)
     t = torch.linspace(0, 1, steps=num_samples).type_as(x)  # timesteps
     band_decays = (band_decays * 10.0) + 1.0
-    env = torch.exp(-band_decays * t.view(1, 1, -1))
+    env = torch.exp(-band_decays * t.view(1, 1, 1, -1))
 
     # fig, axs = plt.subplots()
     # for e_idx in np.arange(env.shape[1]):
     #    plt.plot(env[0, e_idx, :].squeeze().numpy())
     # plt.savefig("env.png", dpi=300)
 
-    print(wn_filt.shape, env.shape, band_gains.shape)
     wn_filt *= env * band_gains
 
     # sum signals to create impulse shape: bs, 2, 1, num_samp
     w_filt_sum = wn_filt.mean(2, keepdim=True)
-    print(w_filt_sum.shape)
 
     # plt.plot(w_filt_sum[0, ...].squeeze().numpy())
     # plt.savefig("impulse.png", dpi=300)
