@@ -534,6 +534,7 @@ def noise_shaped_reverberation(
 
     # create the octave band filterbank filters
     filters = dasp_pytorch.signal.octave_band_filterbank(num_bandpass_taps, sample_rate)
+    filters = filters.type_as(x)
     num_bands = filters.shape[0]
 
     # reshape gain, decay, and mix parameters
@@ -559,19 +560,10 @@ def noise_shaped_reverberation(
     t = torch.linspace(0, 1, steps=num_samples).type_as(x)  # timesteps
     band_decays = (band_decays * 10.0) + 1.0
     env = torch.exp(-band_decays * t.view(1, 1, 1, -1))
-
-    # fig, axs = plt.subplots()
-    # for e_idx in np.arange(env.shape[1]):
-    #    plt.plot(env[0, e_idx, :].squeeze().numpy())
-    # plt.savefig("env.png", dpi=300)
-
     wn_filt *= env * band_gains
 
     # sum signals to create impulse shape: bs, 2, 1, num_samp
     w_filt_sum = wn_filt.mean(2, keepdim=True)
-
-    # plt.plot(w_filt_sum[0, ...].squeeze().numpy())
-    # plt.savefig("impulse.png", dpi=300)
 
     # apply impulse response for each batch item (vectorized)
     x_pad = torch.nn.functional.pad(x, (num_samples - 1, 0))
@@ -636,37 +628,3 @@ def stereo_panner(x: torch.Tensor, pan: torch.Tensor):
     x *= gains
 
     return x
-
-
-def channel_strip(
-    track: torch.Tensor,
-    input_gain_db: torch.Tensor,
-    output_gain_db: torch.Tensor,
-    pan: torch.Tensor,
-    parametric_eq_params: Dict = None,
-    compressor_params: Dict = None,
-):
-    """
-
-    Mono In -> Input Gain -> Parametric EQ -> Compressor -> Output Gain -> Pan => Stereo Out
-
-    Args:
-        track (torch.Tensor): Monophonic audio track with shape (bs, 1, seq_len)
-    """
-    bs, chs, seq_len = track.size()
-
-    # apply input gain
-    track *= 10 ** (input_gain_db.view(bs, 1, 1) / 20.0)
-
-    if parametric_eq_params is not None:
-        track = parametric_eq(track, **parametric_eq_params)
-
-    if compressor_params is not None:
-        track = compressor(track, **compressor_params)
-
-    # apply output gain
-    track *= 10 ** (output_gain_db.view(bs, 1, 1) / 20.0)
-
-    # apply stereo panning
-
-    return track
