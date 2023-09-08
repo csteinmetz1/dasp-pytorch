@@ -8,10 +8,23 @@ from typing import Dict, List
 
 
 def gain(x: torch.Tensor, gain_db: torch.Tensor):
+    """Apply gain in dB to audio tensor.
+
+    The same gain will be applied to each audio channel in the tensor.
+
+    Args:
+        x (torch.Tensor): Input audio tensor with shape (bs, chs, seq_len)
+        gain_db (torch.Tensor): Gain in dB with shape (bs)
+
+    Returns:
+        torch.Tensor: Output audio tensor with shape (bs, chs, seq_len)
+
+    """
     bs, chs, seq_len = x.size()
 
+    gain_db = gain_db.view(bs, 1, 1)
     # convert gain from db to linear
-    gain_lin = 10 ** (gain_db.view(bs, chs, -1) / 20.0)
+    gain_lin = 10 ** (gain_db.repeat(1, chs, 1) / 20.0)
     return x * gain_lin
 
 
@@ -169,7 +182,7 @@ def parametric_eq(
     bs, chs, seq_len = x.size()
 
     # reshape to move everything to batch dim
-    x = x.view(-1, 1, seq_len)
+    # x = x.view(-1, 1, seq_len)
     low_shelf_gain_db = low_shelf_gain_db.view(-1, 1, 1)
     low_shelf_cutoff_freq = low_shelf_cutoff_freq.view(-1, 1, 1)
     low_shelf_q_factor = low_shelf_q_factor.view(-1, 1, 1)
@@ -266,6 +279,7 @@ def compressor(
     knee_db: torch.Tensor,
     makeup_gain_db: torch.Tensor,
     eps: float = 1e-8,
+    lookahead_samples: int = 0,
 ):
     """Dynamic range compressor.
 
@@ -307,18 +321,16 @@ def compressor(
     """
     bs, chs, seq_len = x.size()  # check shape
 
-    # if multiple channels are present, shift them to the batch dimension
-    x = x.view(-1, 1, seq_len)
+    # if multiple channels are present create sum side-chain
+    x_side = x.sum(dim=1, keepdim=True)
+    x_side = x_side.view(-1, 1, seq_len)
     threshold_db = threshold_db.view(-1, 1, 1)
     ratio = ratio.view(-1, 1, 1)
     attack_ms = attack_ms.view(-1, 1, 1)
     release_ms = release_ms.view(-1, 1, 1)
     knee_db = knee_db.view(-1, 1, 1)
     makeup_gain_db = makeup_gain_db.view(-1, 1, 1)
-    eff_bs = x.size(0)
-
-    # compute energy in db
-    x_db = 20 * torch.log10(torch.abs(x).clamp(eps))
+    eff_bs = x_side.size(0)
 
     # compute time constants
     normalized_attack_time = sample_rate * (attack_ms / 1e3)
@@ -327,6 +339,9 @@ def compressor(
     alpha_A = torch.exp(-torch.log(constant) / normalized_attack_time)
     # alpha_R = torch.exp(-torch.log(constant) / normalized_release_time)
     # note that release time constant is not used in the smoothing filter
+
+    # compute energy in db
+    x_db = 20 * torch.log10(torch.abs(x_side).clamp(eps))
 
     # static characteristic with soft knee
     x_sc = x_db.clone()
@@ -360,6 +375,14 @@ def compressor(
         dim=-1,
     ).squeeze(1)
     g_c_attack = dasp_pytorch.signal.lfilter_via_fsm(g_c, b, a)
+
+    # look-ahead by delaying the input signal in relation to gain reduction
+    if lookahead_samples > 0:
+        # last_val = g_c_attack[:, :, -1].unsqueeze(-1)
+        # g_c_attack = torch.roll(g_c_attack, -lookahead_samples, dims=-1)
+        # g_c_attack[:, :, -lookahead_samples:] = last_val
+        x = torch.roll(x, lookahead_samples, dims=-1)
+        x[:, :, :lookahead_samples] = 0
 
     # add makeup gain in db
     g_s = g_c_attack + makeup_gain_db
