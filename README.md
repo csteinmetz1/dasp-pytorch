@@ -2,7 +2,7 @@
 
 <img src="docs/dasp-no-bg.png" width="250px">
 
-# dasp-pytorch
+# dasp
 Differentiable audio signal processors in PyTorch
 
 </div>
