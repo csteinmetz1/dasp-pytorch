@@ -60,7 +60,7 @@ def stereo_bus(x: torch.tensor, send_db: torch.Tensor):
     return x_bus
 
 
-def simple_distortion(x: torch.Tensor, drive_db: torch.Tensor):
+def distortion(x: torch.Tensor, drive_db: torch.Tensor):
     """Simple soft-clipping distortion with drive control."""
     bs, chs, seq_len = x.size()
     return torch.tanh(x * (10 ** (drive_db.view(bs, chs, -1) / 20.0)))
@@ -378,9 +378,6 @@ def compressor(
 
     # look-ahead by delaying the input signal in relation to gain reduction
     if lookahead_samples > 0:
-        # last_val = g_c_attack[:, :, -1].unsqueeze(-1)
-        # g_c_attack = torch.roll(g_c_attack, -lookahead_samples, dims=-1)
-        # g_c_attack[:, :, -lookahead_samples:] = last_val
         x = torch.roll(x, lookahead_samples, dims=-1)
         x[:, :, :lookahead_samples] = 0
 
@@ -456,7 +453,7 @@ def noise_shaped_reverberation(
     num_samples: int = 65536,
     num_bandpass_taps: int = 1023,
 ):
-    """Artificial reverberation.
+    """Artificial reverberation using frequency-band noise shaping.
 
     This differentiable artificial reverberation model is based on the idea of
     filtered noise shaping, similar to that proposed in [1]. This approach leverages
