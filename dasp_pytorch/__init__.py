@@ -8,4 +8,4 @@ from dasp_pytorch.functional import (
     parametric_eq,
 )
 
-from dasp_pytorch.modules import Processor, Compressor
+from dasp_pytorch.modules import Processor, Compressor, ParametricEQ

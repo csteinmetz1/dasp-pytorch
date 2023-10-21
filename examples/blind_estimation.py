@@ -119,7 +119,7 @@ class AudioEffectDataset(torch.nn.Module):
 
 def train(
     root_dir: str,
-    lr: float = 1e-3,
+    lr: float = 1e-4,
     batch_size: int = 8,
     num_epochs: int = 100,
     use_gpu: bool = False,

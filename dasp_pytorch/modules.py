@@ -1,7 +1,7 @@
 import torch
-from dasp_pytorch.functional import compressor
+from dasp_pytorch.functional import compressor, parametric_eq
 
-from typing import Dict
+from typing import Dict, List
 
 
 def denormalize(norm_val, max_val, min_val):
@@ -83,6 +83,41 @@ class Processor:
             )
             denorm_param_dict[param_name] = param_val_denorm
         return denorm_param_dict
+
+
+class ParametricEQ(Processor):
+    def __init__(
+        self,
+        sample_rate: int,
+        min_gain_db: float = -20.0,
+        max_gain_db: float = 20.0,
+        min_q_factor: float = 0.1,
+        max_q_factor: float = 6.0,
+    ):
+        super().__init__()
+        self.sample_rate = sample_rate
+        self.process_fn = parametric_eq
+        self.param_ranges = {
+            "low_shelf_gain_db": (min_gain_db, max_gain_db),
+            "low_shelf_cutoff_freq": (20, 2000),
+            "low_shelf_q_factor": (min_q_factor, max_q_factor),
+            "band0_gain_db": (min_gain_db, max_gain_db),
+            "band0_cutoff_freq": (80, 2000),
+            "band0_q_factor": (min_q_factor, max_q_factor),
+            "band1_gain_db": (min_gain_db, max_gain_db),
+            "band1_cutoff_freq": (2000, 8000),
+            "band1_q_factor": (min_q_factor, max_q_factor),
+            "band2_gain_db": (min_gain_db, max_gain_db),
+            "band2_cutoff_freq": (8000, 12000),
+            "band2_q_factor": (min_q_factor, max_q_factor),
+            "band3_gain_db": (min_gain_db, max_gain_db),
+            "band3_cutoff_freq": (12000, (sample_rate // 2) - 1000),
+            "band3_q_factor": (min_q_factor, max_q_factor),
+            "high_shelf_gain_db": (min_gain_db, max_gain_db),
+            "high_shelf_cutoff_freq": (4000, (sample_rate // 2) - 1000),
+            "high_shelf_q_factor": (min_q_factor, max_q_factor),
+        }
+        self.num_params = len(self.param_ranges)
 
 
 class Compressor(Processor):
