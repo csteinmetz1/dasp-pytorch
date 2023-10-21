@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/dasp-no-bg.png" width="200px">
+<img src="docs/assets/dasp-no-bg.png" width="200px">
 
 # dasp
 `dasp-pytorch` is a Python library for constructing differentiable audio processors using PyTorch. These differentiable processors can be used standalone or within the computation graph of neural networks. We provide purely functional interfaces for all processors that enables ease-of-use and portability across projects. 
