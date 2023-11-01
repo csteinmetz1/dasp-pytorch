@@ -130,4 +130,6 @@ dmypy.json
 
 data/
 audio/
+logs/
+outputs/
 .vscode
