@@ -3,10 +3,18 @@
 <img src="docs/assets/dasp-no-bg.png" width="200px">
 
 # dasp
-`dasp-pytorch` is a Python library for constructing differentiable audio signal processors using PyTorch. These differentiable processors can be used standalone or within the computation graph of neural networks. We provide purely functional interfaces for all processors that enables ease-of-use and portability across projects. 
+
+<i> Differentiable audio signal processors in PyTorch </i>
 
 </div>
 
+<img src="docs/assets/box.svg" width="30px"> &nbsp; Includes reverberation, distortion, dynamic range processing, equalization, stereo processing.
+
+<img src="docs/assets/gear.svg" width="30px"> &nbsp; Enables virtual analog modeling, blind parameter estimation, automated DSP, and style transfer.
+
+<img src="docs/assets/gpu-card.svg" width="30px"> &nbsp; Batching with operation on both CPU and GPU accelerators for fast training and reduced bottlenecks.
+
+<img src="docs/assets/code-slash.svg" width="30px"> &nbsp; Open source and free to use for academic and commercial applications under Apache 2.0 license.
 
 ## Installation 
 
@@ -16,7 +24,11 @@ pip install dasp-pytorch
 
 ## Examples
 
-Unless oterhwise stated, all effect functions expect 3-dim tensors with shape `(batch_size, num_channels, num_samples)` as input and output. Using an effect in your computation graph is as simple as calling the function with the input tensor as argument. 
+`dasp-pytorch` is a Python library for constructing differentiable audio signal processors using PyTorch. 
+These differentiable processors can be used standalone or within the computation graph of neural networks. 
+We provide purely functional interfaces for all processors that enables ease-of-use and portability across projects. 
+Unless oterhwise stated, all effect functions expect 3-dim tensors with shape `(batch_size, num_channels, num_samples)` as input and output. 
+Using an effect in your computation graph is as simple as calling the function with the input tensor as argument. 
 
 ### Quickstart
 
