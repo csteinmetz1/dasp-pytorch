@@ -14,11 +14,23 @@ from typing import List
 # the audio effect parameters for a dynamic range compressor.
 
 
+def plot_loss(log_dir, loss_history: List[float]):
+    fig, ax = plt.subplots()
+    ax.plot(loss_history)
+    ax.set_xlabel("Iteration")
+    ax.set_ylabel("Loss")
+    plt.grid(c="lightgray")
+    outfilepath = os.path.join(log_dir, "loss.png")
+    plt.savefig(outfilepath, dpi=300)
+    plt.close("all")
+
+
 def plot_response(
     y: torch.Tensor,
     x_hat: torch.Tensor,
     x: torch.Tensor,
     sample_rate: int = 44100,
+    epoch: int = 0,
 ):
     fig, ax = plt.subplots(figsize=(6, 4))
 
@@ -45,7 +57,7 @@ def plot_response(
     Y_db = Y_db[:, : Y.shape[-1] - 1]
 
     # smooth frequency response
-    kernel_size = 255
+    kernel_size = 1023
     X_db = torch.nn.functional.avg_pool1d(
         X_db.unsqueeze(0),
         kernel_size=kernel_size,
@@ -83,7 +95,7 @@ def plot_response(
     plt.legend()
     plt.grid(c="lightgray")
     plt.tight_layout()
-    plt.savefig("outputs/auto_eq/response.png", dpi=300)
+    plt.savefig(f"outputs/auto_eq/audio/epoch={epoch:03d}_response.png", dpi=300)
 
 
 class TCNBlock(torch.nn.Module):
@@ -102,7 +114,7 @@ class TCNBlock(torch.nn.Module):
             dilation=dilation,
             stride=2,
         )
-        self.relu1 = torch.nn.ReLU()
+        self.relu1 = torch.nn.PReLU(out_channels)
         self.bn1 = torch.nn.BatchNorm1d(out_channels)
         self.conv2 = torch.nn.Conv1d(
             out_channels,
@@ -110,7 +122,7 @@ class TCNBlock(torch.nn.Module):
             kernel_size,
             dilation=1,
         )
-        self.relu2 = torch.nn.ReLU()
+        self.relu2 = torch.nn.PReLU(out_channels)
         self.bn2 = torch.nn.BatchNorm1d(out_channels)
 
     def forward(self, x: torch.Tensor):
@@ -120,11 +132,11 @@ class TCNBlock(torch.nn.Module):
 
 
 class ParameterNetwork(torch.nn.Module):
-    def __init__(self, num_control_params: int):
+    def __init__(self, num_control_params: int) -> None:
         super().__init__()
         self.num_control_params = num_control_params
 
-        # we will use a simple TCN to estimate the parameters
+        # we will use a simple TCN to estimate a single conditioning parameter
         self.blocks = torch.nn.ModuleList()
         self.blocks.append(TCNBlock(1, 16, 7, dilation=1))
         self.blocks.append(TCNBlock(16, 32, 7, dilation=2))
@@ -144,8 +156,7 @@ class ParameterNetwork(torch.nn.Module):
         for block in self.blocks:
             x = block(x)
         x = x.mean(dim=-1)  # aggregate over time
-        p = torch.sigmoid(self.mlp(x))  # map to parmeters
-        return p
+        return torch.sigmoid(self.mlp(x))  # map to parmeter
 
 
 class AudioEffectDataset(torch.nn.Module):
@@ -163,16 +174,29 @@ class AudioEffectDataset(torch.nn.Module):
 
         self.examples = []
         # create example of length `length` from each file
-        for filepath in filepaths:
+        print("Creating dataset...")
+        for filepath in tqdm(filepaths):
             md = torchaudio.info(filepath)
             if md.num_frames < length:
                 continue
             num_examples = md.num_frames // length
             for n in range(num_examples):
                 frame_offset = n * length
+
+                frame, sr = torchaudio.load(
+                    filepath,
+                    frame_offset=frame_offset,
+                    num_frames=length,
+                    backend="soundfile",
+                )
+
+                # check for silence
+                if torch.max(torch.abs(frame)) < 1e-4:
+                    continue
+
                 self.examples.append((filepath, frame_offset))
 
-        self.examples = self.examples * 100
+        self.examples = self.examples
 
     def __len__(self):
         return len(self.examples)
@@ -194,17 +218,6 @@ class AudioEffectDataset(torch.nn.Module):
         return x
 
 
-def plot_loss(log_dir, loss_history: List[float]):
-    fig, ax = plt.subplots()
-    ax.plot(loss_history)
-    ax.set_xlabel("Iteration")
-    ax.set_ylabel("Loss")
-    plt.grid(c="lightgray")
-    outfilepath = os.path.join(log_dir, "loss.png")
-    plt.savefig(outfilepath, dpi=300)
-    plt.close("all")
-
-
 def train(
     root_dir: str,
     lr: float = 2e-3,
@@ -224,8 +237,8 @@ def train(
     train_filepaths = filepaths[: int(len(filepaths) * 0.8)]
     val_filepaths = filepaths[int(len(filepaths) * 0.8) :]
 
-    train_filepaths = train_filepaths[0:1]
-    val_filepaths = train_filepaths
+    # train_filepaths = train_filepaths[0:1]
+    # val_filepaths = train_filepaths
 
     dataset = AudioEffectDataset(train_filepaths, equalizer)
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size)
@@ -256,7 +269,7 @@ def train(
 
             # 0. create corrupted example with random parameters
             with torch.no_grad():
-                torch.manual_seed(42)
+                # torch.manual_seed(42)
                 param_tensor = torch.rand(x.shape[0], equalizer.num_params).type_as(x)
                 y = equalizer.process_normalized(x, param_tensor)
                 peaks, _ = torch.max(torch.abs(y), dim=-1)  # normalize to [-1,1]
@@ -315,10 +328,14 @@ def validate(
 
     # use one of the validation files
     filepath = np.random.choice(filepaths)
+    print(filepath)
 
     # load audio
     x, sr = torchaudio.load(filepath, backend="soundfile")
-    x = x[:, :131072]
+
+    # pick random segment
+    start = np.random.randint(0, x.shape[-1] - 131072)
+    x = x[:, start : start + 131072]
 
     if use_gpu:
         x = x.cuda()
@@ -332,9 +349,7 @@ def validate(
         y = equalizer.process_normalized(x.unsqueeze(0), param_tensor)
 
         # normalize to [-1,1]
-        peaks, _ = torch.max(torch.abs(y), dim=-1)
-        peaks = peaks.unsqueeze(-1)
-        y /= peaks
+        y /= torch.max(torch.abs(y))
 
         # predict parameters with network to recover original
         p_hat = net(y)
@@ -342,8 +357,10 @@ def validate(
         # apply effect with estimated normalized parameters
         x_hat = equalizer.process_normalized(y, p_hat).squeeze(0)
 
+    print(y.abs().max(), x_hat.abs().max(), x.abs().max())
+
     # plot the responses
-    plot_response(y.squeeze(0), x_hat, x)
+    plot_response(y.squeeze(0), x_hat, x, epoch=epoch)
 
     # save the results
     target_filename = f"epoch={epoch:03d}_target.wav"
@@ -358,4 +375,4 @@ def validate(
 
 
 if __name__ == "__main__":
-    train("data/", use_gpu=True)
+    train("/import/c4dm-datasets/daps_dataset/produced/", use_gpu=True)

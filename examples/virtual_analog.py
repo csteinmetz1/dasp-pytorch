@@ -48,17 +48,69 @@ def plot_waveforms(
     plt.close("all")
 
 
-def plot_system(model: torch.nn.Module):
+def measure_response(
+    equalizer: torch.nn.Module,
+    filter_params: torch.Tensor,
+    sample_rate: float,
+    N: int = 16384,
+    use_gpu: bool = False,
+):
+    impulse = torch.zeros(1, 1, N)
+    impulse[0, 0, 0] = 1.0
+
+    if use_gpu:
+        impulse = impulse.cuda()
+
+    # pass impulse through model
+    with torch.no_grad():
+        y = equalizer.process_normalized(
+            impulse,
+            torch.sigmoid(filter_params),
+        )
+
+    fft_output = np.fft.fft(y.squeeze().numpy())
+    freqs = np.fft.fftfreq(N, 1 / sample_rate)
+
+    # Calculate the magnitude in dB and phase
+    magnitude = 20 * np.log10(np.abs(fft_output))
+    phase = np.angle(fft_output)
+
+    freqs = freqs[: N // 2]
+    magnitude = magnitude[: N // 2]
+
+    return freqs, magnitude
+
+
+def plot_system(model: torch.nn.Module, sample_rate: float, use_gpu: bool = False):
     # plot response of pre and post filters
-    fig, axs = plt.subplots(1, 3, sharex=False, sharey=False)
+    fig, axs = plt.subplots(1, 3, figsize=(8, 3), sharex=False, sharey=False)
 
-    # plot pre-filter
-    axs[0].set_aspect("equal", "box")
+    # -------------------------- plot pre-filter --------------------------
+    freqs, magnitude = measure_response(
+        model.equalizer, model.pre_filter_params, sample_rate
+    )
 
-    # plot nonlinearity
+    # Magnitude response
+    axs[0].plot(freqs, magnitude)
+    axs[0].set_title("Pre-filter")
+    axs[0].set_xlabel("Frequency (Hz)")
+    axs[0].set_ylabel("Magnitude (dB)")
+    axs[0].set_xlim(100, 20000)
+    axs[0].set_ylim(-80, 80)
+    axs[0].set_xscale("log")
+    axs[0].grid(c="lightgray")
+
+    # -------------------------- plot nonlinearity --------------------------
     x = torch.linspace(-3, 3, 1000)
+
+    if use_gpu:
+        x = x.cuda()
+
     with torch.no_grad():
         y = model.mlp_nonlinearity(x.unsqueeze(1)).squeeze(1)
+
+    x = x.cpu()
+    y = y.cpu()
 
     axs[1].plot(x, y)
     axs[1].grid(c="lightgray")
@@ -67,10 +119,25 @@ def plot_system(model: torch.nn.Module):
     axs[1].set_ylim(-3, 3)
     axs[1].set_aspect("equal", "box")
 
-    # plot post-filter
-    axs[2].set_aspect("equal", "box")
+    # -------------------------- plot post-filter --------------------------
 
+    freqs, magnitude = measure_response(
+        model.equalizer, model.post_filter_params, sample_rate
+    )
+
+    # Magnitude response
+    axs[2].plot(freqs, magnitude)
+    axs[2].set_title("Post-filter")
+    axs[2].set_xlabel("Frequency (Hz)")
+    axs[2].set_ylabel("Magnitude (dB)")
+    axs[2].set_xlim(100, 20000)
+    axs[2].set_ylim(-80, 80)
+    axs[2].set_xscale("log")
+    axs[2].grid(c="lightgray")
+
+    plt.tight_layout()
     plt.savefig("outputs/virtual_analog/system.png", dpi=300)
+    plt.close("all")
 
 
 def plot_loss(loss_history: list):
@@ -80,6 +147,7 @@ def plot_loss(loss_history: list):
     plt.xlabel("Epoch")
     plt.ylabel("Loss")
     plt.savefig("outputs/virtual_analog/loss.png", dpi=300)
+    plt.close("all")
 
 
 class FileDataset(torch.utils.data.Dataset):
@@ -99,6 +167,8 @@ class FileDataset(torch.utils.data.Dataset):
             src_segment = src[0:1, start_idx:stop_idx]
             target_segment = target[0:1, start_idx:stop_idx]
             self.examples.append((src_segment, target_segment))
+
+        self.examples = self.examples * 100
 
     def __len__(self):
         return len(self.examples)
@@ -121,23 +191,27 @@ class DistortionModel(torch.nn.Module):
         self.sample_rate = sample_rate
         # the equalizer object does not contain internal state
         # so we can use the same equalizer for the pre and post filters
-        self.equalizer = ParametricEQ(sample_rate)
+        self.equalizer = ParametricEQ(sample_rate, min_gain_db=-48.0, max_gain_db=48.0)
 
-        self.input_gain = torch.nn.Parameter(torch.tensor(0.0))
+        # self.input_gain = torch.nn.Parameter(torch.tensor(0.0))
         # create parameters for the pre and post filters (these will be optimized)
         self.pre_filter_params = torch.nn.Parameter(
-            torch.rand(1, self.equalizer.num_params)
+            torch.rand(1, self.equalizer.num_params) * 0.1
         )
         self.dc_offset = torch.nn.Parameter(torch.tensor(0.0))
         self.mlp_nonlinearity = torch.nn.Sequential(
             torch.nn.Linear(1, 128),
-            torch.nn.PReLU(),
+            torch.nn.ReLU(),
             torch.nn.Linear(128, 128),
-            torch.nn.PReLU(),
+            torch.nn.ReLU(),
+            torch.nn.Linear(128, 128),
+            torch.nn.ReLU(),
+            torch.nn.Linear(128, 128),
+            torch.nn.ReLU(),
             torch.nn.Linear(128, 1),
         )
         self.post_filter_params = torch.nn.Parameter(
-            torch.rand(1, self.equalizer.num_params)
+            torch.rand(1, self.equalizer.num_params) * 0.1
         )
 
     def forward(self, x: torch.Tensor):
@@ -150,7 +224,7 @@ class DistortionModel(torch.nn.Module):
         batch_size, n_channels, n_samples = x.shape
 
         # apply input gain
-        x = x * torch.sigmoid(self.input_gain) * 24.0
+        # x = x * torch.sigmoid(self.input_gain) * 24.0
 
         # apply pre-filter
         y = self.equalizer.process_normalized(
@@ -170,14 +244,40 @@ class DistortionModel(torch.nn.Module):
         return y
 
 
+def train_nonlinearity(
+    nonlinearity: torch.nn.Module,
+    lr: float = 1e-5,
+    n_iters: int = 20000,
+    batch_size: int = 32,
+):
+    optimizer = torch.optim.Adam(nonlinearity.parameters(), lr=lr)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, n_iters)
+
+    print("Training nonlinearity...")
+    pbar = tqdm(range(n_iters))
+    for _ in pbar:
+        x = torch.rand(batch_size, 1) * 6.0 - 3.0
+        y = torch.tanh(x)
+        y_hat = nonlinearity(x)
+        loss = torch.nn.functional.mse_loss(y_hat, y)
+        loss.backward()
+        optimizer.step()
+        scheduler.step()
+        pbar.set_description(f"Loss: {loss.item():.3e}")
+
+
 def train(
     model: torch.nn.Module,
     dataloader: torch.utils.data.DataLoader,
     sample_rate: int,
-    lr: float = 1e-3,
-    epochs: int = 1000,
+    lr: float = 1e-2,
+    epochs: int = 20,
     use_gpu: bool = False,
+    pretrain_nonlinearity: bool = False,
 ):
+    if pretrain_nonlinearity:
+        train_nonlinearity(model.mlp_nonlinearity)
+
     # loss function in frequency domain
     fd_loss_fn = auraloss.freq.MultiResolutionSTFTLoss(
         fft_sizes=[128, 256, 512, 1024, 2048, 4096, 8192],
@@ -232,6 +332,9 @@ def train(
             )
         # average loss over epoch
         epoch_loss_history.append(np.mean(loss_history))
+        # plot_waveforms(src, target, y_hat)
+        plot_system(model, sample_rate=sample_rate, use_gpu=use_gpu)
+        plot_loss(epoch_loss_history)
 
     return epoch_loss_history
 
@@ -245,12 +348,19 @@ if __name__ == "__main__":
 
     # directory for outputs
     os.makedirs("outputs/virtual_analog", exist_ok=True)
+    os.makedirs("outputs/virtual_analog/audio", exist_ok=True)
 
     # construct grey-box distortion model
     model = DistortionModel(sample_rate=44100)
 
     # train the model!
-    loss_history = train(model, dataloader, sample_rate=44100, use_gpu=True)
+    loss_history = train(
+        model,
+        dataloader,
+        sample_rate=44100,
+        pretrain_nonlinearity=True,
+        use_gpu=True,
+    )
 
     # run the final model and plot the results
     model.cpu()
@@ -258,21 +368,33 @@ if __name__ == "__main__":
 
     src, sr = torchaudio.load(scr_filepath, backend="soundfile")
     target, sr = torchaudio.load(target_filepath, backend="soundfile")
-    src = src[0:1, :]
-    target = target[0:1, :]
+    src = src[0:1, :262144]
+    target = target[0:1, :262144]
 
     with torch.no_grad():
         y_hat = model(src.unsqueeze(0)).squeeze(0)
 
     plot_waveforms(src, target, y_hat)
-    plot_system(model)
+    plot_system(model, sample_rate=44100)
     plot_loss(loss_history)
 
     # save audio
     filename = os.path.basename(target_filepath).replace(".wav", "")
     torchaudio.save(
-        f"audio/va/6amps/{filename}-pred.wav",
+        f"outputs/virtual_analog/audio/{filename}-pred.wav",
         y_hat,
+        sr,
+        backend="soundfile",
+    )
+    torchaudio.save(
+        f"outputs/virtual_analog/audio/{filename}-input.wav",
+        src,
+        sr,
+        backend="soundfile",
+    )
+    torchaudio.save(
+        f"outputs/virtual_analog/audio/{filename}-target.wav",
+        target,
         sr,
         backend="soundfile",
     )
