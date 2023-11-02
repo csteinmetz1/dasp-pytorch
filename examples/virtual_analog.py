@@ -18,6 +18,7 @@ def plot_waveforms(
     pred: torch.Tensor,
     num_segments: int = 6,
     segment_length: int = 4096,
+    amp_name: str = "amp",
 ):
     fig, axs = plt.subplots(2, 3, sharex=True, sharey=True, figsize=(8, 6))
     axs = np.reshape(axs, -1)
@@ -44,7 +45,7 @@ def plot_waveforms(
         if n == 0:
             axs[n].legend()
 
-    plt.savefig("outputs/virtual_analog/audio.png", dpi=300)
+    plt.savefig(f"outputs/virtual_analog/{amp_name}/audio.png", dpi=300)
     plt.close("all")
 
 
@@ -81,7 +82,12 @@ def measure_response(
     return freqs, magnitude
 
 
-def plot_system(model: torch.nn.Module, sample_rate: float, use_gpu: bool = False):
+def plot_system(
+    model: torch.nn.Module,
+    sample_rate: float,
+    use_gpu: bool = False,
+    amp_name: str = "amp",
+):
     # plot response of pre and post filters
     fig, axs = plt.subplots(1, 3, figsize=(8, 3), sharex=False, sharey=False)
 
@@ -136,17 +142,17 @@ def plot_system(model: torch.nn.Module, sample_rate: float, use_gpu: bool = Fals
     axs[2].grid(c="lightgray")
 
     plt.tight_layout()
-    plt.savefig("outputs/virtual_analog/system.png", dpi=300)
+    plt.savefig(f"outputs/virtual_analog/{amp_name}/system.png", dpi=300)
     plt.close("all")
 
 
-def plot_loss(loss_history: list):
+def plot_loss(loss_history: list, amp_name: str = "amp"):
     plt.figure()
     plt.plot(loss_history)
     plt.grid(c="lightgray")
     plt.xlabel("Epoch")
     plt.ylabel("Loss")
-    plt.savefig("outputs/virtual_analog/loss.png", dpi=300)
+    plt.savefig(f"outputs/virtual_analog/{amp_name}/loss.png", dpi=300)
     plt.close("all")
 
 
@@ -271,7 +277,7 @@ def train(
     dataloader: torch.utils.data.DataLoader,
     sample_rate: int,
     lr: float = 1e-2,
-    epochs: int = 20,
+    epochs: int = 10,
     use_gpu: bool = False,
     pretrain_nonlinearity: bool = False,
 ):
@@ -340,61 +346,103 @@ def train(
 
 
 if __name__ == "__main__":
-    # construct dataset
-    scr_filepath = "audio/va/6amps/idmt-rock-input-varying-gain.wav"
-    target_filepath = "audio/va/6amps/idmt-rock-high-gain1-brit-8000.wav"
-    dataset = FileDataset(scr_filepath, target_filepath, length=32768)
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=32, shuffle=True)
+    amps = {
+        "65twin-reverb": {
+            "src": "audio/amps/idmt-rock-input-varying-gain.wav",
+            "target": "audio/amps/idmt-rock-clean1-65twin-reverb.wav",
+        },
+        "jazz-amp": {
+            "src": "audio/amps/idmt-rock-input-varying-gain.wav",
+            "target": "audio/amps/idmt-rock-clean2-jazz-amp-120.wav",
+        },
+        "orange-dual-terror": {
+            "src": "audio/amps/idmt-rock-input-varying-gain.wav",
+            "target": "audio/amps/idmt-rock-crunch1-orange-dual-terror.wav",
+        },
+        "british-blue-tube-30": {
+            "src": "audio/amps/idmt-rock-input-varying-gain.wav",
+            "target": "audio/amps/idmt-rock-crunch2-british-blue-tube-30tb.wav",
+        },
+        "brit-8000": {
+            "src": "audio/amps/idmt-rock-input-varying-gain.wav",
+            "target": "audio/amps/idmt-rock-high-gain1-brit-8000.wav",
+        },
+        "mesa-triple-rectifier": {
+            "src": "audio/amps/idmt-rock-input-varying-gain.wav",
+            "target": "audio/amps/idmt-rock-high-gain2-mesa-triple-rectifier.wav",
+        },
+    }
 
-    # directory for outputs
-    os.makedirs("outputs/virtual_analog", exist_ok=True)
-    os.makedirs("outputs/virtual_analog/audio", exist_ok=True)
+    # check if the audio/amp directory exists, otherwise download it
+    for amp_name, amp_files in amps.items():
+        for filepath in amp_files.values():
+            if not os.path.exists(filepath):
+                filepath = filepath.replace("audio/", "")
+                print(f"Downloading: {filepath}")
+                os.makedirs("audio/amps", exist_ok=True)
+                os.system(
+                    f"wget csteinmetz1.github.io/sounds/assets/{filepath} -O audio/{filepath}"
+                )
 
-    # construct grey-box distortion model
-    model = DistortionModel(sample_rate=44100)
+    # train one model for each amp
+    for amp_name, amp_files in amps.items():
+        src_filepath = amp_files["src"]
+        target_filepath = amp_files["target"]
 
-    # train the model!
-    loss_history = train(
-        model,
-        dataloader,
-        sample_rate=44100,
-        pretrain_nonlinearity=True,
-        use_gpu=True,
-    )
+        dataset = FileDataset(src_filepath, target_filepath, length=32768)
+        dataloader = torch.utils.data.DataLoader(dataset, batch_size=32, shuffle=True)
 
-    # run the final model and plot the results
-    model.cpu()
-    model.eval()
+        # directory for outputs
+        os.makedirs("outputs/virtual_analog", exist_ok=True)
+        log_dir = f"outputs/virtual_analog/{amp_name}"
+        os.makedirs(log_dir, exist_ok=True)
+        os.makedirs(f"{log_dir}/audio", exist_ok=True)
 
-    src, sr = torchaudio.load(scr_filepath, backend="soundfile")
-    target, sr = torchaudio.load(target_filepath, backend="soundfile")
-    src = src[0:1, :262144]
-    target = target[0:1, :262144]
+        # construct grey-box distortion model
+        model = DistortionModel(sample_rate=44100)
 
-    with torch.no_grad():
-        y_hat = model(src.unsqueeze(0)).squeeze(0)
+        # train the model!
+        loss_history = train(
+            model,
+            dataloader,
+            sample_rate=44100,
+            pretrain_nonlinearity=True,
+            use_gpu=True,
+        )
 
-    plot_waveforms(src, target, y_hat)
-    plot_system(model, sample_rate=44100)
-    plot_loss(loss_history)
+        # run the final model and plot the results
+        model.cpu()
+        model.eval()
 
-    # save audio
-    filename = os.path.basename(target_filepath).replace(".wav", "")
-    torchaudio.save(
-        f"outputs/virtual_analog/audio/{filename}-pred.wav",
-        y_hat,
-        sr,
-        backend="soundfile",
-    )
-    torchaudio.save(
-        f"outputs/virtual_analog/audio/{filename}-input.wav",
-        src,
-        sr,
-        backend="soundfile",
-    )
-    torchaudio.save(
-        f"outputs/virtual_analog/audio/{filename}-target.wav",
-        target,
-        sr,
-        backend="soundfile",
-    )
+        src, sr = torchaudio.load(src_filepath, backend="soundfile")
+        target, sr = torchaudio.load(target_filepath, backend="soundfile")
+        src = src[0:1, :]
+        target = target[0:1, :]
+
+        with torch.no_grad():
+            y_hat = model(src.unsqueeze(0)).squeeze(0)
+
+        plot_waveforms(src, target, y_hat, amp_name=amp_name)
+        plot_system(model, amp_name=amp_name, sample_rate=44100)
+        plot_loss(loss_history, amp_name=amp_name)
+
+        # save audio
+        filename = os.path.basename(target_filepath).replace(".wav", "")
+        torchaudio.save(
+            f"outputs/virtual_analog/{amp_name}/audio/{filename}-pred.wav",
+            y_hat,
+            sr,
+            backend="soundfile",
+        )
+        torchaudio.save(
+            f"outputs/virtual_analog/{amp_name}/audio/{filename}-input.wav",
+            src,
+            sr,
+            backend="soundfile",
+        )
+        torchaudio.save(
+            f"outputs/virtual_analog/{amp_name}/audio/{filename}-target.wav",
+            target,
+            sr,
+            backend="soundfile",
+        )
