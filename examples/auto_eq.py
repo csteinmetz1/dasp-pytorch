@@ -10,8 +10,9 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 from typing import List
 
-# In this example we will train a neural network to perform blind estimation of
-# the audio effect parameters for a dynamic range compressor.
+# In this example we will train a neural network to perform automatic equalization.
+# We train the network to estimate the parameters of a parametric equalizer.
+# Using the DAPS dataset, we corrupt speech examples with "bad" equalization and train the network to recover the original signal.
 
 
 def plot_loss(log_dir, loss_history: List[float]):
@@ -132,20 +133,26 @@ class TCNBlock(torch.nn.Module):
 
 
 class ParameterNetwork(torch.nn.Module):
-    def __init__(self, num_control_params: int) -> None:
+    def __init__(self, num_control_params: int, ch_dim: int = 256) -> None:
         super().__init__()
         self.num_control_params = num_control_params
 
         # we will use a simple TCN to estimate a single conditioning parameter
+        # this network is about 8M parameters
         self.blocks = torch.nn.ModuleList()
-        self.blocks.append(TCNBlock(1, 16, 7, dilation=1))
-        self.blocks.append(TCNBlock(16, 32, 7, dilation=2))
-        self.blocks.append(TCNBlock(32, 64, 7, dilation=4))
-        self.blocks.append(TCNBlock(64, 128, 7, dilation=8))
-        self.blocks.append(TCNBlock(128, 128, 7, dilation=16))
+        self.blocks.append(TCNBlock(1, ch_dim, 7, dilation=1))
+        self.blocks.append(TCNBlock(ch_dim, ch_dim, 7, dilation=2))
+        self.blocks.append(TCNBlock(ch_dim, ch_dim, 7, dilation=4))
+        self.blocks.append(TCNBlock(ch_dim, ch_dim, 7, dilation=8))
+        self.blocks.append(TCNBlock(ch_dim, ch_dim, 7, dilation=16))
+        self.blocks.append(TCNBlock(ch_dim, ch_dim, 7, dilation=1))
+        self.blocks.append(TCNBlock(ch_dim, ch_dim, 7, dilation=2))
+        self.blocks.append(TCNBlock(ch_dim, ch_dim, 7, dilation=4))
+        self.blocks.append(TCNBlock(ch_dim, ch_dim, 7, dilation=8))
+        self.blocks.append(TCNBlock(ch_dim, ch_dim, 7, dilation=16))
 
         self.mlp = torch.nn.Sequential(
-            torch.nn.Linear(128, 256),
+            torch.nn.Linear(ch_dim, 256),
             torch.nn.ReLU(),
             torch.nn.Linear(256, 256),
             torch.nn.ReLU(),
@@ -163,11 +170,9 @@ class AudioEffectDataset(torch.nn.Module):
     def __init__(
         self,
         filepaths: List[str],
-        processor: dasp_pytorch.Processor,
         length: int = 131072,
     ) -> None:
         super().__init__()
-        self.processor = processor
         self.length = length
 
         assert len(filepaths) > 0, "No files found."
@@ -225,27 +230,32 @@ def train(
     num_epochs: int = 400,
     use_gpu: bool = False,
     log_dir: str = "outputs/auto_eq",
+    sample_rate: int = 44100,
 ):
     os.makedirs(log_dir, exist_ok=True)  # create log directory
-    equalizer = dasp_pytorch.ParametricEQ(44100)  # create instance of equalizer
+    equalizer = dasp_pytorch.ParametricEQ(sample_rate)  # create instance of equalizer
     net = ParameterNetwork(equalizer.num_params)  # create parameter estimation network
     optimizer = torch.optim.Adam(net.parameters(), lr=lr)  # create optimizer
 
     # create dataset
     filepaths = glob.glob(os.path.join(root_dir, "*.wav"))
-    # split into train (80%) and validation sets (20%)
     train_filepaths = filepaths[: int(len(filepaths) * 0.8)]
     val_filepaths = filepaths[int(len(filepaths) * 0.8) :]
-
-    # train_filepaths = train_filepaths[0:1]
-    # val_filepaths = train_filepaths
-
-    dataset = AudioEffectDataset(train_filepaths, equalizer)
+    dataset = AudioEffectDataset(train_filepaths)
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size)
 
     # use a frequency domain loss function
-    criterion = auraloss.freq.STFTLoss()
-    # criterion = auraloss.time.SISDRLoss()
+    criterion = auraloss.freq.MultiResolutionSTFTLoss(
+        fft_sizes=[128, 256, 512, 1024, 2048, 4096, 8192],
+        hop_sizes=[64, 128, 256, 512, 1024, 2048, 4096],
+        win_lengths=[128, 256, 512, 1024, 2048, 4096, 8192],
+        w_sc=0.0,
+        w_phs=0.0,
+        w_lin_mag=1.0,
+        w_log_mag=1.0,
+        perceptual_weighting=True,
+        sample_rate=sample_rate,
+    )
 
     # move to GPU if available
     if use_gpu:
@@ -302,14 +312,16 @@ def train(
         # plot loss and validate at the end of each epoch
         epoch_loss_history.append(np.mean(batch_loss_history))
         plot_loss(log_dir, epoch_loss_history)
-        validate(
-            epoch + 1,
-            val_filepaths,
-            net,
-            equalizer,
-            log_dir=log_dir,
-            use_gpu=use_gpu,
-        )
+
+        if (epoch + 1) % 10 == 0:  # validate every 10 epochs
+            validate(
+                epoch + 1,
+                val_filepaths,
+                net,
+                equalizer,
+                log_dir=log_dir,
+                use_gpu=use_gpu,
+            )
 
 
 def validate(
@@ -357,8 +369,6 @@ def validate(
         # apply effect with estimated normalized parameters
         x_hat = equalizer.process_normalized(y, p_hat).squeeze(0)
 
-    print(y.abs().max(), x_hat.abs().max(), x.abs().max())
-
     # plot the responses
     plot_response(y.squeeze(0), x_hat, x, epoch=epoch)
 
@@ -375,4 +385,5 @@ def validate(
 
 
 if __name__ == "__main__":
+    # provide path to the DAPS dataset (we use the `produced` subset)
     train("/import/c4dm-datasets/daps_dataset/produced/", use_gpu=True)
