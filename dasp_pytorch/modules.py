@@ -1,5 +1,11 @@
 import torch
-from dasp_pytorch.functional import compressor, parametric_eq
+from dasp_pytorch.functional import (
+    gain,
+    distortion,
+    compressor,
+    parametric_eq,
+    noise_shaped_reverberation,
+)
 
 from typing import Dict, List
 
@@ -85,6 +91,36 @@ class Processor:
         return denorm_param_dict
 
 
+class Gain(Processor):
+    def __init__(
+        self,
+        sample_rate: int,
+        min_gain_db: float = -24.0,
+        max_gain_db: float = 24.0,
+    ):
+        super().__init__()
+        self.sample_rate = sample_rate
+        self.process_fn = gain
+        self.param_ranges = {
+            "gain_db": (min_gain_db, max_gain_db),
+        }
+        self.num_params = len(self.param_ranges)
+
+
+class Distortion(Processor):
+    def __init__(
+        self,
+        min_gain_db: float = 0.0,
+        max_gain_db: float = 24.0,
+    ):
+        super().__init__()
+        self.process_fn = distortion
+        self.param_ranges = {
+            "gain_db": (min_gain_db, max_gain_db),
+        }
+        self.num_params = len(self.param_ranges)
+
+
 class ParametricEQ(Processor):
     def __init__(
         self,
@@ -147,5 +183,49 @@ class Compressor(Processor):
             "release_ms": (min_release_ms, max_release_ms),
             "knee_db": (min_knee_db, max_knee_db),
             "makeup_gain_db": (min_makeup_gain_db, max_makeup_gain_db),
+        }
+        self.num_params = len(self.param_ranges)
+
+
+class NoiseShapedReverb(Processor):
+    def __init__(
+        self,
+        sample_rate,
+        min_band_gain: float = 0.0,
+        max_band_gain: float = 1.0,
+        min_band_decay: float = 0.0,
+        max_band_decay: float = 1.0,
+        min_mix: float = 0.0,
+        max_mix: float = 1.0,
+    ):
+        super().__init__()
+        self.sample_rate = sample_rate
+        self.process_fn = noise_shaped_reverberation
+        self.param_ranges = {
+            "band0_gain": (min_band_gain, max_band_gain),
+            "band1_gain": (min_band_gain, max_band_gain),
+            "band2_gain": (min_band_gain, max_band_gain),
+            "band3_gain": (min_band_gain, max_band_gain),
+            "band4_gain": (min_band_gain, max_band_gain),
+            "band5_gain": (min_band_gain, max_band_gain),
+            "band6_gain": (min_band_gain, max_band_gain),
+            "band7_gain": (min_band_gain, max_band_gain),
+            "band8_gain": (min_band_gain, max_band_gain),
+            "band9_gain": (min_band_gain, max_band_gain),
+            "band10_gain": (min_band_gain, max_band_gain),
+            "band11_gain": (min_band_gain, max_band_gain),
+            "band0_decay": (min_band_decay, max_band_decay),
+            "band1_decay": (min_band_decay, max_band_decay),
+            "band2_decay": (min_band_decay, max_band_decay),
+            "band3_decay": (min_band_decay, max_band_decay),
+            "band4_decay": (min_band_decay, max_band_decay),
+            "band5_decay": (min_band_decay, max_band_decay),
+            "band6_decay": (min_band_decay, max_band_decay),
+            "band7_decay": (min_band_decay, max_band_decay),
+            "band8_decay": (min_band_decay, max_band_decay),
+            "band9_decay": (min_band_decay, max_band_decay),
+            "band10_decay": (min_band_decay, max_band_decay),
+            "band11_decay": (min_band_decay, max_band_decay),
+            "mix": (min_mix, max_mix),
         }
         self.num_params = len(self.param_ranges)

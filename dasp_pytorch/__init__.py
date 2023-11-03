@@ -5,7 +5,15 @@ from dasp_pytorch.functional import (
     stereo_widener,
     noise_shaped_reverberation,
     compressor,
+    distortion,
     parametric_eq,
 )
 
-from dasp_pytorch.modules import Processor, Compressor, ParametricEQ
+from dasp_pytorch.modules import (
+    Processor,
+    Compressor,
+    ParametricEQ,
+    NoiseShapedReverb,
+    Gain,
+    Distortion,
+)

@@ -7,13 +7,14 @@ from functools import partial
 from typing import Dict, List
 
 
-def gain(x: torch.Tensor, gain_db: torch.Tensor):
+def gain(x: torch.Tensor, sample_rate: int, gain_db: torch.Tensor):
     """Apply gain in dB to audio tensor.
 
     The same gain will be applied to each audio channel in the tensor.
 
     Args:
         x (torch.Tensor): Input audio tensor with shape (bs, chs, seq_len)
+        sample_rate (int): Audio sample rate.
         gain_db (torch.Tensor): Gain in dB with shape (bs)
 
     Returns:
@@ -28,7 +29,7 @@ def gain(x: torch.Tensor, gain_db: torch.Tensor):
     return x * gain_lin
 
 
-def stereo_bus(x: torch.tensor, send_db: torch.Tensor):
+def stereo_bus(x: torch.tensor, sample_rate: int, send_db: torch.Tensor):
     """Stereo bus with controllable send levels.
 
     Given a tensor containing a set of audio tracks, create a stereo bus by summing the tracks
@@ -37,6 +38,7 @@ def stereo_bus(x: torch.tensor, send_db: torch.Tensor):
 
     Args:
         x (torch.Tensor): Input audio tensor with shape (bs, 2, tracks, seq_len)
+        sample_rate (int): Audio sample rate.
         send_db (torch.Tensor): Send levels in dB with shape (bs, tracks, 1)
 
     Returns:
@@ -60,29 +62,39 @@ def stereo_bus(x: torch.tensor, send_db: torch.Tensor):
     return x_bus
 
 
-def distortion(x: torch.Tensor, drive_db: torch.Tensor):
-    """Simple soft-clipping distortion with drive control."""
+def distortion(x: torch.Tensor, sample_rate: int, drive_db: torch.Tensor):
+    """Simple soft-clipping distortion with drive control.
+
+    Args:
+        x (torch.Tensor): Input audio tensor with shape (bs, chs, seq_len)
+        sample_rate (int): Audio sample rate.
+        drive_db (torch.Tensor): Drive in dB with shape (bs)
+
+    Returns:
+        torch.Tensor: Output audio tensor with shape (bs, chs, seq_len)
+
+    """
     bs, chs, seq_len = x.size()
     return torch.tanh(x * (10 ** (drive_db.view(bs, chs, -1) / 20.0)))
 
 
 def advanced_distortion(
     x: torch.Tensor,
+    sample_rate: float,
     input_gain_db: torch.Tensor,
     output_gain_db: torch.Tensor,
     tone: torch.Tensor,
     dc_offset: torch.Tensor,
-    sample_rate: float,
 ):
     """
 
     Args:
         x (torch.Tensor): Input audio tensor with shape (bs, ..., seq_len)
-        input_gain_db (torch.Tensor):
-        output_gain_db (torch.Tensor):
-        tone (torch.Tensor):
-        dc_offset (torch.Tensor):
-        sample_rate (float):
+        sample_rate (float): Audio sample rate.
+        input_gain_db (torch.Tensor): Input gain in dB with shape (bs, ...)
+        output_gain_db (torch.Tensor): Output gain in dB with shape (bs, ...)
+        tone (torch.Tensor): Tone control with shape (bs, ...)
+        dc_offset (torch.Tensor): DC offset with shape (bs, ...)
 
     The tone filter is implemented as a weighted sum of 1st order highpass and lowpass filters.
     This is based on the design of the Boss guituar pedal modelled in [2]. Their design uses a
@@ -96,20 +108,11 @@ def advanced_distortion(
         Digital implementation of musical distortion circuits by analysis and simulation.
         Stanford University, 2009.
     """
-
-    # input gain
-
-    # nonlinearity
-    x = torch.tanh(x)
-
-    # design highpass and lowpass filters
-
-    return
+    raise NotImplementedError
 
 
-def graphic_eq():
-    # 20 bands (octave)
-    return
+def graphic_eq(x: torch.Tensor, sample_rate: float):
+    raise NotImplementedError
 
 
 def parametric_eq(
@@ -596,14 +599,18 @@ def noise_shaped_reverberation(
     return y
 
 
-def stereo_widener(x: torch.Tensor, width: torch.Tensor):
+def stereo_widener(x: torch.Tensor, sample_rate: float, width: torch.Tensor):
     """Stereo widener using mid-side processing.
 
     Args:
         x (torch.Tensor): Stereo audio tensor of shape (bs, 2, seq_len)
+        sample_rate (float): Audio sample rate (Hz).
         width (torch.Tensor): Stereo width control. Higher is wider. has shape (bs)
 
     """
+    bs, chs, seq_len = x.size()
+    assert chs == 2, "Input tensor must have shape (bs, 2, seq_len)"
+
     sqrt2 = np.sqrt(2)
     mid = (x[..., 0, :] + x[..., 1, :]) / sqrt2
     side = (x[..., 0, :] - x[..., 1, :]) / sqrt2
@@ -619,11 +626,12 @@ def stereo_widener(x: torch.Tensor, width: torch.Tensor):
     return torch.stack((left, right), dim=-2)
 
 
-def stereo_panner(x: torch.Tensor, pan: torch.Tensor):
+def stereo_panner(x: torch.Tensor, sample_rate: float, pan: torch.Tensor):
     """Take a mono single and pan across the stereo field.
 
     Args:
         x (torch.Tensor): Monophonic audio tensor of shape (bs, num_tracks, seq_len).
+        sample_rate (float): Audio sample rate (Hz).
         pan (torch.Tensor): Pan value on the range from 0 to 1.
 
     Returns:
