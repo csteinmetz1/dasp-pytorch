@@ -339,8 +339,8 @@ def train(
         # average loss over epoch
         epoch_loss_history.append(np.mean(loss_history))
         # plot_waveforms(src, target, y_hat)
-        plot_system(model, sample_rate=sample_rate, use_gpu=use_gpu)
-        plot_loss(epoch_loss_history)
+        plot_system(model, amp_name=amp_name, sample_rate=sample_rate, use_gpu=use_gpu)
+        plot_loss(epoch_loss_history, amp_name=amp_name)
 
     return epoch_loss_history
 
