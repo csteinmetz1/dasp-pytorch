@@ -217,6 +217,8 @@ class AudioEffectDataset(torch.nn.Module):
             backend="soundfile",
         )
 
+        x *= 0.5  # apply some headroom
+
         # clamp to [-1,1] to ensure within range
         x = torch.clamp(x, -1, 1)
 
@@ -227,13 +229,15 @@ def train(
     root_dir: str,
     lr: float = 2e-3,
     batch_size: int = 16,
-    num_epochs: int = 400,
+    num_epochs: int = 1000,
     use_gpu: bool = False,
     log_dir: str = "outputs/auto_eq",
     sample_rate: int = 44100,
 ):
     os.makedirs(log_dir, exist_ok=True)  # create log directory
-    equalizer = dasp_pytorch.ParametricEQ(sample_rate)  # create instance of equalizer
+    equalizer = dasp_pytorch.ParametricEQ(
+        sample_rate, max_q_factor=1.0
+    )  # create instance of equalizer
     net = ParameterNetwork(equalizer.num_params)  # create parameter estimation network
     optimizer = torch.optim.Adam(net.parameters(), lr=lr)  # create optimizer
 
@@ -297,6 +301,7 @@ def train(
             # 2. apply effect with estimated normalized parameters
             # we apply the effect to the "corrupted" signal to recover the original
             x_hat = equalizer.process_normalized(y, p_hat)
+            x_hat = torch.tanh(x_hat)  # normalize to [-1,1]
 
             # 3. compute loss between the original and recovered signal
             loss = criterion(x_hat, x)

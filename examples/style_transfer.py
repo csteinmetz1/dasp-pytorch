@@ -4,10 +4,22 @@ import torch
 import auraloss
 import torchaudio
 import numpy as np
+import matplotlib.pyplot as plt
 
 from tqdm import tqdm
-from typing import List
-from dasp_pytorch import ParametricEQ, Compressor, NoiseShapedReverb
+from typing import List, Optional
+from dasp_pytorch import ParametricEQ, Compressor, NoiseShapedReverb, Gain
+
+
+def plot_loss(log_dir, loss_history: List[float]):
+    fig, ax = plt.subplots()
+    ax.plot(loss_history)
+    ax.set_xlabel("Iteration")
+    ax.set_ylabel("Loss")
+    plt.grid(c="lightgray")
+    outfilepath = os.path.join(log_dir, "loss.png")
+    plt.savefig(outfilepath, dpi=300)
+    plt.close("all")
 
 
 class TCNBlock(torch.nn.Module):
@@ -44,20 +56,25 @@ class TCNBlock(torch.nn.Module):
 
 
 class Encoder(torch.nn.Module):
-    def __init__(self, embed_dim: int) -> None:
+    def __init__(self, embed_dim: int, ch_dim: int = 256) -> None:
         super().__init__()
         self.embed_dim = embed_dim
 
         # we will use a simple TCN to estimate a single conditioning parameter
         self.blocks = torch.nn.ModuleList()
-        self.blocks.append(TCNBlock(1, 16, 7, dilation=1))
-        self.blocks.append(TCNBlock(16, 32, 7, dilation=2))
-        self.blocks.append(TCNBlock(32, 64, 7, dilation=4))
-        self.blocks.append(TCNBlock(64, 128, 7, dilation=8))
-        self.blocks.append(TCNBlock(128, 128, 7, dilation=16))
+        self.blocks.append(TCNBlock(1, ch_dim, 7, dilation=1))
+        self.blocks.append(TCNBlock(ch_dim, ch_dim, 7, dilation=2))
+        self.blocks.append(TCNBlock(ch_dim, ch_dim, 7, dilation=4))
+        self.blocks.append(TCNBlock(ch_dim, ch_dim, 7, dilation=8))
+        self.blocks.append(TCNBlock(ch_dim, ch_dim, 7, dilation=16))
+        self.blocks.append(TCNBlock(ch_dim, ch_dim, 7, dilation=1))
+        self.blocks.append(TCNBlock(ch_dim, ch_dim, 7, dilation=2))
+        self.blocks.append(TCNBlock(ch_dim, ch_dim, 7, dilation=4))
+        self.blocks.append(TCNBlock(ch_dim, ch_dim, 7, dilation=8))
+        self.blocks.append(TCNBlock(ch_dim, ch_dim, 7, dilation=16))
 
         self.mlp = torch.nn.Sequential(
-            torch.nn.Linear(128, 256),
+            torch.nn.Linear(ch_dim, 256),
             torch.nn.ReLU(),
             torch.nn.Linear(256, 256),
             torch.nn.ReLU(),
@@ -98,14 +115,7 @@ class StyleTransferModel(torch.nn.Module):
         self.equalizer = ParametricEQ(sample_rate)
         self.compressor = Compressor(sample_rate)
         self.reverb = NoiseShapedReverb(sample_rate)
-
-        self.equalizer_parameters = torch.nn.Parameter(
-            torch.randn(self.equalizer.num_params)
-        )
-        self.compressor_parameters = torch.nn.Parameter(
-            torch.randn(self.compressor.num_params)
-        )
-        self.reverb_parameters = torch.nn.Parameter(torch.randn(self.reverb.num_params))
+        self.gain = Gain(sample_rate)
 
         # create networks
         self.encoder = Encoder(512)
@@ -117,6 +127,9 @@ class StyleTransferModel(torch.nn.Module):
         )
         self.reverb_projector = ParameterProjector(
             self.encoder.embed_dim * 2, self.reverb.num_params
+        )
+        self.gain_projector = ParameterProjector(
+            self.encoder.embed_dim * 2, self.gain.num_params
         )
 
     def forward(self, input: torch.Tensor, ref: torch.Tensor):
@@ -131,11 +144,14 @@ class StyleTransferModel(torch.nn.Module):
         equalizer_params = self.equalizer_projector(z)
         compressor_params = self.compressor_projector(z)
         reverb_params = self.reverb_projector(z)
+        gain_params = self.gain_projector(z)
 
         # process audio with estimated parameters
-        y = self.equalizer.process_normalized(input, equalizer_params)
+        y = input.clone()
+        y = self.equalizer.process_normalized(y, equalizer_params)
         y = self.compressor.process_normalized(y, compressor_params)
         y = self.reverb.process_normalized(y, reverb_params)
+        y = self.gain.process_normalized(y, gain_params)
 
         return y
 
@@ -175,7 +191,7 @@ class AudioFileDataset(torch.nn.Module):
 
                 self.examples.append((filepath, frame_offset))
 
-        self.examples = self.examples
+        self.examples = self.examples * 100
 
     def __len__(self):
         return len(self.examples)
@@ -197,15 +213,133 @@ class AudioFileDataset(torch.nn.Module):
         return x
 
 
+def validate(
+    model: torch.nn.Module,
+    val_dataloader: torch.utils.data.DataLoader,
+    num_examples: int = 1,
+    use_gpu: bool = False,
+    epoch: int = 0,
+    log_dir: str = "outputs/style_transfer",
+):
+    model.eval()
+
+    for batch_idx, batch in enumerate(val_dataloader):
+        if batch_idx >= num_examples:
+            break
+
+        input = batch
+
+        if use_gpu:
+            input = input.cuda()
+
+        with torch.no_grad():
+            input_a, input_b, ref_a, ref_b, output_a = step(input, model)
+
+        # save audio examples
+        input_a_filepath = os.path.join(
+            log_dir, "audio", f"epoch={epoch}_input_a_{batch_idx}.wav"
+        )
+        input_b_filepath = os.path.join(
+            log_dir, "audio", f"epoch={epoch}_input_b_{batch_idx}.wav"
+        )
+        ref_a_filepath = os.path.join(
+            log_dir, "audio", f"epoch={epoch}_ref_a_{batch_idx}.wav"
+        )
+        ref_b_filepath = os.path.join(
+            log_dir, "audio", f"epoch={epoch}_ref_b_{batch_idx}.wav"
+        )
+        output_a_filepath = os.path.join(
+            log_dir, "audio", f"epoch={epoch}_output_a_{batch_idx}.wav"
+        )
+        torchaudio.save(
+            input_a_filepath, input_a.cpu().squeeze(0), 44100, backend="soundfile"
+        )
+        torchaudio.save(
+            input_b_filepath, input_b.cpu().squeeze(0), 44100, backend="soundfile"
+        )
+        torchaudio.save(
+            ref_a_filepath, ref_a.cpu().squeeze(0), 44100, backend="soundfile"
+        )
+        torchaudio.save(
+            ref_b_filepath, ref_b.cpu().squeeze(0), 44100, backend="soundfile"
+        )
+        torchaudio.save(
+            output_a_filepath, output_a.cpu().squeeze(0), 44100, backend="soundfile"
+        )
+
+
+def step(input: torch.Tensor, model: torch.nn.Module):
+    # generate reference by randomly processing input
+    torch.manual_seed(1)
+    rand_equalizer_params = torch.rand(
+        input.shape[0],
+        model.equalizer.num_params,
+    ).type_as(input)
+    rand_compressor_params = torch.rand(
+        input.shape[0],
+        model.compressor.num_params,
+    ).type_as(input)
+    rand_reverb_params = torch.rand(
+        input.shape[0],
+        model.reverb.num_params,
+    ).type_as(input)
+    rand_gain_params = torch.rand(
+        input.shape[0],
+        model.gain.num_params,
+    ).type_as(input)
+
+    # process input with random parameters
+    # randomly disable the effects
+    ref = input.clone()
+    # if torch.rand(1) < 0.5:
+    ref = model.equalizer.process_normalized(ref, rand_equalizer_params)
+    # if torch.rand(1) < 0.5:
+    ref = model.compressor.process_normalized(ref, rand_compressor_params)
+    # if torch.rand(1) < 0.5:
+    ref = model.reverb.process_normalized(ref, rand_reverb_params)
+
+    # ref = model.gain.process_normalized(ref, rand_gain_params)
+
+    # if not stereo already, convert to stereo
+    # if ref.shape[1] == 1:
+    #    ref = ref.repeat(1, 2, 1)
+
+    # peak normalize reference recordings
+    peak, _ = torch.max(torch.abs(ref), dim=-1, keepdim=True)
+    ref = ref / peak
+
+    # apply random gain from -24 dB to 0 dB
+    gain_db = torch.rand(input.shape[0], 1, 1).type_as(input) * 24
+    gain_lin = torch.pow(10, -gain_db / 20)
+    ref = ref * gain_lin
+
+    # apply random gain to input
+    gain_db = torch.rand(input.shape[0], 1, 1).type_as(input) * 24
+    gain_lin = torch.pow(10, -gain_db / 20)
+    input = input * gain_lin
+
+    # split into A and B sections
+    input_a, input_b = torch.chunk(input, 2, dim=-1)
+    ref_a, ref_b = torch.chunk(ref, 2, dim=-1)
+
+    # forward pass
+    output_a = model(input_a, torch.mean(ref_b, dim=1, keepdim=True))
+
+    return input_a, input_b, ref_a, ref_b, output_a
+
+
 def train(
     model: torch.nn.Module,
-    dataloader: torch.utils.data.DataLoader,
-    lr: float = 1e-3,
-    epochs: int = 100,
+    train_dataloader: torch.utils.data.DataLoader,
+    val_dataloader: Optional[torch.utils.data.DataLoader] = None,
+    lr: float = 1e-4,
+    epochs: int = 250,
     use_gpu: bool = False,
+    log_dir: str = "outputs/style_transfer",
 ):
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     loss_fn = auraloss.freq.MultiResolutionSTFTLoss()
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, epochs)
 
     if use_gpu:
         model = model.cuda()
@@ -213,35 +347,17 @@ def train(
 
     epoch_loss_history = []
     for epoch in range(epochs):
-        pbar = tqdm(dataloader)
+        pbar = tqdm(train_dataloader)
         loss_history = []
+        model.train()
         for batch in pbar:
             input = batch
 
             if use_gpu:
                 input = input.cuda()
 
-            # generate reference by randomly processing input
-            rand_equalizer_params = torch.rand(
-                input.shape[0], model.equalizer.num_params
-            ).type_as(input)
-            rand_compressor_params = torch.rand(
-                input.shape[0], model.compressor.num_params
-            ).type_as(input)
-            rand_reverb_params = torch.rand(
-                input.shape[0], model.reverb.num_params
-            ).type_as(input)
-
-            ref = model.equalizer.process_normalized(input, rand_equalizer_params)
-            ref = model.compressor.process_normalized(ref, rand_compressor_params)
-            ref = model.reverb.process_normalized(ref, rand_reverb_params)
-
-            # split into A and B sections
-            input_a, input_b = torch.chunk(input, 2, dim=-1)
-            ref_a, ref_b = torch.chunk(ref, 2, dim=-1)
-
             # forward pass
-            output_a = model(input_a, torch.mean(ref_b, dim=1, keepdim=True))
+            input_a, input_b, ref_a, ref_b, output_a = step(input, model)
 
             # compute loss on A section
             loss = loss_fn(output_a, ref_a)
@@ -251,12 +367,24 @@ def train(
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            scheduler.step()
 
         epoch_loss_history.append(np.mean(loss_history))
+        plot_loss(log_dir, epoch_loss_history)
+        validate(
+            model,
+            val_dataloader,
+            epoch=epoch + 1,
+            log_dir=log_dir,
+            use_gpu=use_gpu,
+        )
 
 
 if __name__ == "__main__":
     sample_rate = 44100
+    log_dir = "outputs/style_transfer"
+    os.makedirs(log_dir, exist_ok=True)
+    os.makedirs(os.path.join(log_dir, "audio"), exist_ok=True)
     model = StyleTransferModel(sample_rate)
 
     filepaths = glob.glob(
@@ -265,9 +393,25 @@ if __name__ == "__main__":
     )
     train_filepaths = filepaths[: int(len(filepaths) * 0.8)]
     val_filepaths = filepaths[int(len(filepaths) * 0.8) :]
-    dataset = AudioFileDataset(train_filepaths, length=262144)
-    dataloader = torch.utils.data.DataLoader(
-        dataset, batch_size=32, shuffle=True, num_workers=16
+
+    train_filepaths = train_filepaths[:1]
+    val_filepaths = train_filepaths[:1]
+
+    train_dataset = AudioFileDataset(train_filepaths, length=262144)
+    train_dataloader = torch.utils.data.DataLoader(
+        train_dataset,
+        batch_size=8,
+        shuffle=True,
+        num_workers=8,
     )
 
-    train(model, dataloader, use_gpu=True)
+    val_dataset = AudioFileDataset(val_filepaths, length=262144)
+    val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size=1)
+
+    train(
+        model,
+        train_dataloader,
+        val_dataloader=val_dataloader,
+        log_dir=log_dir,
+        use_gpu=True,
+    )
