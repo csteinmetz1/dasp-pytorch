@@ -19,8 +19,12 @@
 ## Installation 
 
 ```
-pip install dasp-pytorch
+git clone https://github.com/csteinmetz1/dasp-pytorch
+cd dasp-pytorch
+pip install -e .
 ```
+
+Note: Coming to PyPi soon to enable `pip install dasp-pytorch`.
 
 ## Examples
 
@@ -81,62 +85,56 @@ unzip audio_mono-mic.zip
 rm audio_mono-mic.zip
 ```
 
+### More examples
+
+- [Virtual Analog Modeling](examples/virtual_analog.py)
+- [Automatic Equalization](examples/auto_eq.py)
+- [Audio Production Style Transfer](examples/style_transfer.py)
+
 ## Audio Processors
 
 <table>
     <tr>
         <th>Audio Processor</th>
-        <th>Interface</th>
-        <th>Reference</th>
+        <th>Functional Interface</th>
     </tr>
     <tr>
-        <td>Simple Distortion</td>
-        <td><code>simple_distortion()</code></td>
-        <td></a></td>
+        <td>Gain</td>
+        <td><code>gain()</code></td>
     </tr>
     <tr>
-        <td>Advanced Distortion</td>
-        <td><code>advanced_distortion()</code></td>
-        <td></a></td>
-    </tr>    
+        <td>Distortion</td>
+        <td><code>distortion()</code></td>
+    </tr>
     <tr>
         <td>Parametric Equalizer</td>
         <td><code>parametric_eq()</code></td>
-        <td></td>
-    </tr>
-    <tr>
-        <td>Graphic Equalizer</td>
-        <td><code>graphic_eq()</code></td>
-        <td></td>
     </tr>
     <tr>
         <td>Dynamic range compressor</td>
         <td><code>compressor()</code></td>
-        <td></td>
     </tr>
     <tr>
         <td>Dynamic range expander</td>
         <td><code>expander()</code></td>
-        <td></td>
     </tr>    
     <tr>
         <td>Reverberation</td>
-        <td><code>reverberation()</code></td>
-        <td></td>
+        <td><code>noise_shaped_reverberation()</code></td>
     </tr>
     <tr>
         <td>Stereo Widener</td>
         <td><code>stereo_widener()</code></td>
-        <td></td>
     </tr>
     <tr>
         <td>Stereo Panner</td>
         <td><code>stereo_panner()</code></td>
-        <td></td>
+    </tr>
+    <tr>
+        <td>Stereo Bus</td>
+        <td><code>stereo_bus()</code></td>
     </tr>
 </table>
-
-## Examples
 
 ## Citations
 
@@ -186,3 +184,11 @@ Differnetiable IIR filters
 ```
 
 ## Acknowledgements
+
+Supported by the EPSRC UKRI Centre for Doctoral Training in Artificial Intelligence and Music (EP/S022694/1).
+
+<p float="left">
+    <img src="docs/assets/logos/qm.png" height="50px"> &nbsp; &nbsp; 
+    <img src="docs/assets/logos/aim.png"  height="50px"> &nbsp; &nbsp; 
+    <img src="docs/assets/logos/ukri.png"  height="50px"> &nbsp; &nbsp; 
+</p>

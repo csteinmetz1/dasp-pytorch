@@ -400,29 +400,7 @@ def compressor(
 
 
 def expander():
-    # static characteristics with soft-knee
-    x_sc = x_db.clone()
-
-    # below knee
-    idx = x_db < (threshold_db - knee_db / 2)
-    x_sc_below = threshold_db + (x_db - threshold_db) * ratio
-    x_sc[idx] = x_sc_below[idx]
-
-    # at knee
-    idx_1 = x_db <= (threshold_db + (knee_db / 2))
-    idx_2 = x_db >= (threshold_db - (knee_db / 2))
-    idx = torch.logical_and(idx_1, idx_2)
-    x_sc_at = x_db + ((1 - ratio) * ((x_db - threshold_db - (knee_db / 2)) ** 2)) / (
-        2 * knee_db
-    )
-    x_sc[idx] = x_sc_at[idx]
-
-    # above knee signal remains the same
-
-    # gain
-    g_c = x_sc - x_db
-
-    return x
+    raise NotImplementedError
 
 
 def noise_shaped_reverberation(
