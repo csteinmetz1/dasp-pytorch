@@ -191,7 +191,7 @@ class AudioFileDataset(torch.nn.Module):
 
                 self.examples.append((filepath, frame_offset))
 
-        self.examples = self.examples * 100
+        self.examples = self.examples
 
     def __len__(self):
         return len(self.examples)
@@ -270,7 +270,7 @@ def validate(
 
 def step(input: torch.Tensor, model: torch.nn.Module):
     # generate reference by randomly processing input
-    torch.manual_seed(1)
+    # torch.manual_seed(1)
     rand_equalizer_params = torch.rand(
         input.shape[0],
         model.equalizer.num_params,
@@ -394,8 +394,8 @@ if __name__ == "__main__":
     train_filepaths = filepaths[: int(len(filepaths) * 0.8)]
     val_filepaths = filepaths[int(len(filepaths) * 0.8) :]
 
-    train_filepaths = train_filepaths[:1]
-    val_filepaths = train_filepaths[:1]
+    # train_filepaths = train_filepaths[:1]
+    # val_filepaths = train_filepaths[:1]
 
     train_dataset = AudioFileDataset(train_filepaths, length=262144)
     train_dataloader = torch.utils.data.DataLoader(
