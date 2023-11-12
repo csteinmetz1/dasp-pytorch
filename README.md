@@ -42,6 +42,8 @@ Using an effect in your computation graph is as simple as calling the function w
 
 Here is a minimal example to demonstrate reverse engineering the drive value of a simple distortion effect using gradient descent. 
 
+Try it for yourself: [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/csteinmetz1/dasp-pytorch/blob/main/examples/quickstart.ipynb)
+
 ```python
 import torch
 import torchaudio
@@ -56,7 +58,7 @@ x = x.unsqueeze(0)
 
 # apply some distortion with 16 dB drive
 drive = torch.tensor([16.0])
-y = dasp_pytorch.functional.distortion(x, drive)
+y = dasp_pytorch.functional.distortion(x, sr, drive)
 
 # create a parameter to optimizer
 drive_hat = torch.nn.Parameter(torch.tensor(0.0))
@@ -66,7 +68,7 @@ optimizer = torch.optim.Adam([drive_hat], lr=0.01)
 n_iters = 2500
 for n in range(n_iters):
     # apply distortion with the estimated parameter
-    y_hat = dasp_pytorch.functional.distortion(x, drive_hat)
+    y_hat = dasp_pytorch.functional.distortion(x, sr, drive_hat)
 
     # compute distance between estimate and target
     loss = torch.nn.functional.mse_loss(y_hat, y)
@@ -76,8 +78,9 @@ for n in range(n_iters):
     loss.backward()
     optimizer.step()
     print(
-        f"step: {n+1}/{n_iters}, loss: {loss.item():.3f}, drive: {drive_hat.item():.3f}"
+        f"step: {n+1}/{n_iters}, loss: {loss.item():.3e}, drive: {drive_hat.item():.3f}\r"
     )
+    
 ```
 
 For the remaining examples we will use the [GuitarSet](https://guitarset.weebly.com/) dataset. 
