@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/assets/dasp-no-bg.png" width="200px">
+<img src="https://github.com/csteinmetz1/dasp-pytorch/raw/main/docs/assets/dasp-no-bg.png" width="200px">
 
 # dasp
 
@@ -8,23 +8,27 @@
 
 </div>
 
-<img src="docs/assets/box.svg" width="30px"> &nbsp; Includes reverberation, distortion, dynamic range processing, equalization, stereo processing.
+<img src="https://github.com/csteinmetz1/dasp-pytorch/raw/main/docs/assets/box.svg" width="30px"> &nbsp; Includes reverberation, distortion, dynamic range processing, equalization, stereo processing.
 
-<img src="docs/assets/gear.svg" width="30px"> &nbsp; Enables virtual analog modeling, blind parameter estimation, automated DSP, and style transfer.
+<img src="https://github.com/csteinmetz1/dasp-pytorch/raw/main/docs/assets/gear.svg" width="30px"> &nbsp; Enables virtual analog modeling, blind parameter estimation, automated DSP, and style transfer.
 
-<img src="docs/assets/gpu-card.svg" width="30px"> &nbsp; Batching with operation on both CPU and GPU accelerators for fast training and reduced bottlenecks.
+<img src="https://github.com/csteinmetz1/dasp-pytorch/raw/main/docs/assets/gpu-card.svg" width="30px"> &nbsp; Batching with operation on both CPU and GPU accelerators for fast training and reduced bottlenecks.
 
-<img src="docs/assets/code-slash.svg" width="30px"> &nbsp; Open source and free to use for academic and commercial applications under Apache 2.0 license.
+<img src="https://github.com/csteinmetz1/dasp-pytorch/raw/main/docs/assets/code-slash.svg" width="30px"> &nbsp; Open source and free to use for academic and commercial applications under Apache 2.0 license.
 
 ## Installation 
+
+```
+pip install dasp-pytorch
+```
+
+Or, for a local installation.
 
 ```
 git clone https://github.com/csteinmetz1/dasp-pytorch
 cd dasp-pytorch
 pip install -e .
 ```
-
-Note: Coming to PyPi soon to enable `pip install dasp-pytorch`.
 
 ## Examples
 
@@ -188,7 +192,7 @@ Differnetiable IIR filters
 Supported by the EPSRC UKRI Centre for Doctoral Training in Artificial Intelligence and Music (EP/S022694/1).
 
 <p float="left">
-    <img src="docs/assets/logos/qm.png" height="50px"> &nbsp; &nbsp; 
-    <img src="docs/assets/logos/aim.png"  height="50px"> &nbsp; &nbsp; 
-    <img src="docs/assets/logos/ukri.png"  height="50px"> &nbsp; &nbsp; 
+    <img src="https://github.com/csteinmetz1/dasp-pytorch/raw/main/docs/assets/logos/qm.png" height="50px"> &nbsp; &nbsp; 
+    <img src="https://github.com/csteinmetz1/dasp-pytorch/raw/main/docs/assets/logos/aim.png"  height="50px"> &nbsp; &nbsp; 
+    <img src="https://github.com/csteinmetz1/dasp-pytorch/blob/main/docs/assets/logos/ukri.png"  height="50px"> &nbsp; &nbsp; 
 </p>
