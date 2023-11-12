@@ -1,6 +1,6 @@
 
 [project]
-name = "dasp_pytorch"
+name = "dasp-pytorch"
 version = "0.0.1"
 description = "Differentiable audio processors in PyTorch."
 authors = [
