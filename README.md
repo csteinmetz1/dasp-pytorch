@@ -34,7 +34,7 @@ pip install -e .
 
 `dasp-pytorch` is a Python library for constructing differentiable audio signal processors using PyTorch. 
 These differentiable processors can be used standalone or within the computation graph of neural networks. 
-We provide purely functional interfaces for all processors that enables ease-of-use and portability across projects. 
+We provide purely functional interfaces for all processors that enable ease-of-use and portability across projects. 
 Unless oterhwise stated, all effect functions expect 3-dim tensors with shape `(batch_size, num_channels, num_samples)` as input and output. 
 Using an effect in your computation graph is as simple as calling the function with the input tensor as argument. 
 
@@ -147,7 +147,7 @@ rm audio_mono-mic.zip
 
 If you use this library consider citing these papers:
 
-Differnetiable parametric EQ and dynamic range compressor
+Differentiable parametric EQ and dynamic range compressor
 ```bibtex
 @article{steinmetz2022style,
   title={Style transfer of audio effects with differentiable signal processing},
@@ -169,7 +169,7 @@ Differentiable artificial reveberation with frequency-band noise shaping
 }
 ```
 
-Differnetiable IIR filters
+Differentiable IIR filters
 ```bibtex
 @inproceedings{nercessian2020neural,
   title={Neural parametric equalizer matching using differentiable biquads},
